@@ -180,14 +180,14 @@ class Peticiones(Base):
 
     @mock.patch.object(S, "aplicar_entrada")
     @mock.patch.object(S, "kc_entrar")
-    @mock.patch.object(S, "asegurar_grupos")
+    @mock.patch.object(S, "asegurar_caminos")
     @mock.patch.object(S, "asegurar_cliente", return_value="secreto")
     def test_registrar_crea_grupos_cliente_y_ruta(self, cli, grupos, _e, aplicar):
         r = self.pedir("registrar", {"repo": "yo/inventario", "manifiesto": {
             "ruta": "inventario", "nombre": "Inventario", "grupo": "Inventario",
             "despliegue": {"tipo": "servidor", "imagen": "ghcr.io/yo/inventario"}}})
         self.assertTrue(r["ok"], r["salida"])
-        grupos.assert_called_once_with("Inventario")
+        grupos.assert_called_once_with(["DEV/Inventario", "PRO/Inventario"])
         self.assertEqual([c.args[0] for c in cli.call_args_list], ["inventario-dev", "inventario-pro"])
         self.assertEqual(cli.call_args_list[1].args[2], ["https://pro.ejemplo.com/inventario"])
         self.assertEqual(S.leer_env(self.dir / "secretos" / "inventario-pro.env")["KEYCLOAK_CLIENT_SECRET"], "secreto")
@@ -257,6 +257,143 @@ class Actualizar(Base):
             self.assertFalse(S.actualizar())
         self.assertIn("nuevo", S._malas())
         self.assertFalse(any("checkout" in c for c in llamadas))
+
+
+class Principal(Base):
+    """Una app principal (SPSIL) con subapps: pasan por DEV y PRO como todas,
+    y PRO puede ir a su dominio."""
+    def setUp(self):
+        super().setUp()
+        S.guardar_registro(S.validar_manifiesto({"ruta": "spsil", "nombre": "SPSIL", "grupo": "SPSIL", "principal": True}))
+        S.guardar_registro(S.validar_manifiesto({"ruta": "tareas", "nombre": "Tareas", "grupo": "Tareas", "prefijo": "conservar",
+                                                 "despliegue": {"workflow": "despliegue.yml"}}, "yo/tareas"), "yo/tareas")
+
+    def sub(self, ruta="tareas", **extra):
+        m = {"ruta": ruta, "nombre": f"{ruta} SPSIL", "grupo": ruta.capitalize(), "prefijo": "conservar", "entrada": "propia",
+             "dentro": "spsil", "despliegue": {"workflow": "despliegue.yml"}}
+        S.guardar_registro(S.validar_manifiesto(m, "yo/tareas-spsil"), "yo/tareas-spsil", **extra)
+
+    def poner_dominio(self, dom="spsil.ejemplo.com", **extra):
+        d = json.loads((self.dir / "registro" / "spsil.json").read_text())
+        d.update({"dominio": dom, **extra})
+        (self.dir / "registro" / "spsil.json").write_text(json.dumps(d))
+
+    def test_subapp_va_dentro_y_no_choca_con_otra_app(self):
+        self.sub()
+        reg = S.registro()
+        self.assertEqual(set(reg), {"spsil", "tareas", "spsil.tareas"})
+        dev = S.ficheros_entrada("dev")
+        self.assertIn("location /spsil/tareas/ {", dev["apps/spsil.tareas.conf"])
+        self.assertIn("set $destino spsil-tareas-dev:8000;", dev["apps/spsil.tareas.conf"])   # no tareas-dev
+        self.assertIn("X-Forwarded-Prefix /spsil/tareas;", dev["apps/spsil.tareas.conf"])
+        self.assertIn("proxy_set_header X-Principal spsil;", dev["apps/spsil.conf"])
+        self.assertIn("location = /spsil/ {", dev["apps/spsil.conf"])
+
+    def test_grupos_iguales_para_todo_el_servidor(self):
+        self.sub()
+        c = S.catalogo()
+        dev = {a["id"]: a for a in c["entradas"]["dev"]}
+        self.assertEqual(dev["spsil.tareas"]["grupos"], ["DEV/SPSIL/Tareas"])
+        self.assertEqual(dev["spsil"]["grupos"], ["DEV/SPSIL"])
+        self.assertEqual(dev["tareas"]["grupos"], ["DEV/Tareas"])
+        self.poner_dominio()
+        pro = {a["id"]: a for a in S.catalogo()["entradas"]["pro"]}
+        self.assertEqual(pro["spsil.tareas"]["grupos"], ["PRO/SPSIL/Tareas"])   # tambien en su dominio
+
+    def test_pro_en_su_dominio(self):
+        self.sub()
+        self.sub("linai")
+        self.poner_dominio(redirigir={"stock": "/paginas/", "ajustes": "/x/"})
+        (self.dir / "estado" / "estaticos" / "spsil").mkdir(parents=True)
+        (self.dir / "estado" / "estaticos" / "spsil" / "spsil-logo.webp").write_bytes(b"x")
+        S.guardar_registro(S.registro()["spsil.tareas"]["manifiesto"], "yo/tareas-spsil", contenedores={"pro": "spsil-tareas"})
+        pro, dev = S.ficheros_entrada("pro"), S.ficheros_entrada("dev")
+        d = pro["dominio-spsil.conf"]
+        self.assertIn("server_name spsil.ejemplo.com;", d)
+        self.assertIn("location /tareas/ {", d)
+        self.assertIn("set $destino spsil-tareas:8000;", d)   # el que ya habia
+        self.assertIn("X-Forwarded-Prefix /tareas;", d)
+        self.assertIn("location /linai/ {", d)
+        self.assertIn("proxy_pass $panel/portada/;", d)
+        self.assertIn("proxy_set_header X-Principal spsil;", d)
+        self.assertIn("location = /spsil-logo.webp {", d)
+        self.assertIn("location /stock/ { return 301 /paginas/; }", d)
+        self.assertNotIn("/x/", d)
+        self.assertNotIn("apps/spsil.tareas.conf", pro)   # en PRO ya solo por su dominio
+        self.assertIn("https://spsil.ejemplo.com/$1 permanent;", pro["apps/spsil.conf"])
+        self.assertIn("location /spsil/tareas/ {", dev["apps/spsil.tareas.conf"])   # DEV sigue igual
+        a = next(x for x in S.catalogo()["apps"] if x["id"] == "spsil.tareas")
+        self.assertEqual(a["donde"]["pro"], {"host": "spsil.ejemplo.com", "camino": "/tareas/"})
+        self.assertEqual(a["donde"]["dev"], {"host": "dev.ejemplo.com", "camino": "/spsil/tareas/"})
+
+    def test_subapp_sin_principal_no_vale(self):
+        with self.assertRaises(S.Error):
+            S.validar_manifiesto({"ruta": "x1", "dentro": "spsil", "principal": True})
+        S.guardar_registro(S.validar_manifiesto({"ruta": "x1", "dentro": "otra"}))
+        self.assertNotIn("otra.x1", S.registro())
+
+    @mock.patch.object(S, "aplicar_entrada")
+    @mock.patch.object(S, "kc_entrar")
+    @mock.patch.object(S, "asegurar_caminos")
+    @mock.patch.object(S, "asegurar_cliente", return_value="s")
+    def test_registrar_dentro_desde_el_panel(self, _cli, caminos, _e, _a):
+        r = self.pedir_ok("registrar", {"repo": "yo/lin", "dentro": "spsil", "contenedor_pro": "spsil-linai",
+                                        "grupos_extra": "Lin-AI Editor",
+                                        "manifiesto": {"ruta": "linai", "nombre": "Lin-AI", "grupo": "Lin-AI",
+                                                       "despliegue": {"workflow": "linai.yml"}}})
+        datos = S.registro()["spsil.linai"]
+        self.assertEqual(datos["contenedores"], {"pro": "spsil-linai"})
+        self.assertEqual(S.contenedor_en(datos, "dev"), "spsil-linai-dev")
+        caminos.assert_called_once_with(["DEV/SPSIL/Lin-AI", "DEV/SPSIL/Lin-AI Editor", "PRO/SPSIL/Lin-AI", "PRO/SPSIL/Lin-AI Editor"])
+        self.assertTrue(r["ok"])
+        self.pedir_ok("registrar", {"dentro": "tareas", "manifiesto": {"ruta": "x1"}}, pid="20260101000002-cccc", ok=False)
+        self.pedir_ok("quitar", {"id": "spsil"}, pid="20260101000003-dddd", ok=False)   # tiene subapps
+
+    def pedir_ok(self, accion, datos, pid="20260101000000-aaaa", ok=True):
+        (self.dir / "peticiones" / f"{pid}.json").write_text(json.dumps({"accion": accion, "datos": datos, "quien": "henry"}))
+        S.procesar_peticiones()
+        r = json.loads((self.dir / "estado" / "resultados" / f"{pid}.json").read_text())
+        self.assertEqual(r["ok"], ok, r["salida"])
+        return r
+
+    def test_dominio_guarda_a_donde_iba_y_quitarlo_vuelve(self):
+        self.sub()
+        S.poner_env(self.dir / "servidor.env", {"ENTORNOS_GESTIONADOS": "dev pro"})
+        npm = []
+        with mock.patch.object(S, "npm_apuntar", side_effect=lambda d, h, p: npm.append((d, h, p)) or {"host": "spsil-portal", "puerto": 80}), \
+                mock.patch.object(S, "aplicar_entrada"), mock.patch.object(S, "kc_entrar", side_effect=S.Error("sin kc")), \
+                mock.patch.object(S, "copiar_estaticos") as copiar, mock.patch.object(S, "_reiniciar_panel"), \
+                mock.patch.object(S, "comprobar_dominio", return_value={"partes": {}}), \
+                mock.patch("socket.gethostbyname", return_value="1.2.3.4"):
+            r = self.pedir_ok("dominio", {"id": "spsil", "dominio": "spsil.ejemplo.com"})
+            self.assertEqual(S.registro()["spsil"]["npm_antes"], {"host": "spsil-portal", "puerto": 80})
+            copiar.assert_called_once_with("spsil", "spsil-portal")
+            self.pedir_ok("dominio", {"id": "spsil.tareas", "dominio": "otra.ejemplo.com"}, pid="20260101000004-eeee", ok=False)
+            self.pedir_ok("quitar_dominio", {"id": "spsil"}, pid="20260101000005-ffff")
+        self.assertEqual(npm[0], ("spsil.ejemplo.com", "entrada-pro", 80))
+        self.assertEqual(npm[-1], ("spsil.ejemplo.com", "spsil-portal", 80))
+        self.assertEqual(S.registro()["spsil"]["dominio"], "")
+        self.assertIn("LISTO", r["salida"])
+
+    def test_cloudflare_crea_el_registro_y_no_pisa_otro(self):
+        llamadas = []
+
+        def cf(metodo, ruta, datos=None, token=""):
+            llamadas.append((metodo, ruta))
+            if ruta.startswith("/zones?name=ejemplo.com"):
+                return [{"id": "z1"}]
+            if ruta.startswith("/zones?"):
+                return []
+            if "dns_records?name=nuevo" in ruta:
+                return []
+            if "dns_records?name=viejo" in ruta:
+                return [{"type": "A", "content": "9.9.9.9"}]
+            return {}
+        with mock.patch.object(S, "_cf", side_effect=cf):
+            S.cloudflare_registro("nuevo.ejemplo.com", "1.2.3.4")
+            S.cloudflare_registro("viejo.ejemplo.com", "1.2.3.4")
+        posts = [x for x in llamadas if x[0] == "POST"]
+        self.assertEqual(posts, [("POST", "/zones/z1/dns_records")])
 
 
 if __name__ == "__main__":

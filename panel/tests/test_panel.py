@@ -167,7 +167,7 @@ class Ajustes(unittest.TestCase):
         self.assertEqual(r.status_code, 303)
         [p] = Path(TMP, "peticiones").glob("*.json")
         datos = json.loads(p.read_text())
-        self.assertEqual((datos["accion"], datos["datos"], datos["quien"]), ("grupo", {"ruta": "linai", "grupo": "Lin-AI"}, "henry"))
+        self.assertEqual((datos["accion"], datos["datos"], datos["quien"]), ("grupo", {"id": "linai", "grupo": "Lin-AI"}, "henry"))
 
     def test_pasar_a_pro_workflow(self):
         c = cliente("henry", ["/IT"])
@@ -182,7 +182,7 @@ class Ajustes(unittest.TestCase):
         c = cliente("henry", ["/IT"])
         c.post("/ajustes/pasar-a-pro/", data={"ruta": "inventario", "csrf": self.csrf(c)})
         [p] = Path(TMP, "peticiones").glob("*.json")
-        self.assertEqual(json.loads(p.read_text())["datos"], {"ruta": "inventario", "entorno": "pro", "version": "sha-1111111"})
+        self.assertEqual(json.loads(p.read_text())["datos"], {"id": "inventario", "entorno": "pro", "version": "sha-1111111"})
 
     def test_poner_anterior(self):
         c = cliente("henry", ["/IT"])
@@ -285,6 +285,111 @@ class GitHub(unittest.TestCase):
         cuerpo = {"content": base64.b64encode(json.dumps({"apps": [{"ruta": "a"}, {"ruta": "b"}]}).encode()).decode()}
         with mock.patch.object(github, "llamar", return_value=cuerpo):
             self.assertEqual([a["ruta"] for a in github.leer_manifiesto("yo/x")], ["a", "b"])
+
+
+SPSIL = {"ruta": "spsil", "id": "spsil", "nombre": "SPSIL", "grupo": "SPSIL", "principal": True, "dominio": "spsil.ejemplo.com",
+         "logo": "spsil-logo.webp", "version": "version/", "despliegue": {"tipo": "ninguno"},
+         "estado_dominio": {"fecha": "2030-01-01T10:00:00Z", "partes": {"dns": {"ok": True}, "proxy": {"ok": False, "detalle": "va a spsil-portal"}}}}
+TAREAS_SPSIL = {"ruta": "tareas", "id": "spsil.tareas", "dentro": "spsil", "nombre": "Tareas SPSIL", "grupo": "Tareas",
+                "version": "version/", "repo": "yo/tareas-spsil",
+                "donde": {"dev": {"host": "dev.ejemplo.com", "camino": "/spsil/tareas/"},
+                          "pro": {"host": "spsil.ejemplo.com", "camino": "/tareas/"}},
+                "despliegue": {"tipo": "workflow", "repo": "yo/tareas-spsil", "workflow": "despliegue.yml", "rama": "main",
+                               "campo_entorno": "entorno", "campo_version": "version", "anterior": True}}
+CON_SPSIL = {**CATALOGO, "apps": CATALOGO["apps"] + [SPSIL, TAREAS_SPSIL], "entradas": {
+    "dev": CATALOGO["entradas"]["dev"] + [
+        {"ruta": "spsil", "id": "spsil", "nombre": "SPSIL", "principal": True, "camino": "/spsil/", "host": "dev.ejemplo.com",
+         "grupos": ["DEV/SPSIL"], "salud": "version/"},
+        {"ruta": "tareas", "id": "spsil.tareas", "nombre": "Tareas SPSIL", "dentro": "spsil", "camino": "/spsil/tareas/",
+         "host": "dev.ejemplo.com", "grupos": ["DEV/SPSIL/Tareas"], "salud": "version/"}],
+    "pro": CATALOGO["entradas"]["pro"] + [
+        {"ruta": "spsil", "id": "spsil", "nombre": "SPSIL", "principal": True, "camino": "/", "host": "spsil.ejemplo.com",
+         "grupos": ["PRO/SPSIL"], "salud": "version/"},
+        {"ruta": "tareas", "id": "spsil.tareas", "nombre": "Tareas SPSIL", "dentro": "spsil", "camino": "/tareas/",
+         "host": "spsil.ejemplo.com", "grupos": ["PRO/SPSIL/Tareas"], "salud": "version/"}]}}
+
+
+def cliente_spsil(usuario=None, grupos=()):
+    """Por su dominio: la entrada de PRO pone X-Entorno pro y X-Principal spsil."""
+    c = TestClient(panel.app, base_url="http://spsil.ejemplo.com")
+    c.headers.update({"X-Entorno": "pro", "X-Principal": "spsil"})
+    if usuario:
+        datos = {"usuario": usuario, "grupos": sorted(g.strip("/") for g in grupos), "id_token": "tok"}
+        with mock.patch.object(panel, "canjear_codigo", return_value=datos) as canje:
+            r = c.get("/ajustes/entrar?next=/", follow_redirects=False)
+            from urllib.parse import parse_qs, urlparse
+            state = parse_qs(urlparse(r.headers["location"]).query)["state"][0]
+            c.get(f"/ajustes/entrar/vuelta?code=abc&state={state}", follow_redirects=False)
+            c.canje = canje
+    return c
+
+
+@mock.patch.dict(os.environ, {"KEYCLOAK_CLIENTE_SPSIL": "servidor-spsil", "KEYCLOAK_SECRETO_SPSIL": "s2"})
+class Principal(unittest.TestCase):
+    def setUp(self):
+        poner_catalogo(CON_SPSIL)
+        for p in Path(TMP, "peticiones").glob("*"):
+            p.unlink()
+
+    def test_su_dominio_usa_su_cliente_y_vuelve_a_su_dominio(self):
+        r = cliente_spsil().get("/ajustes/entrar?next=/", follow_redirects=False)
+        self.assertIn("client_id=servidor-spsil", r.headers["location"])
+        self.assertIn("https%3A%2F%2Fspsil.ejemplo.com%2Fajustes%2Fentrar%2Fvuelta", r.headers["location"])
+        c = cliente_spsil("susana", ["/PRO/SPSIL/Tareas"])
+        self.assertEqual(c.canje.call_args.args[2], ("servidor-spsil", "s2"))
+        r = c.get("/ajustes/salir", follow_redirects=False)
+        self.assertIn("client_id=servidor-spsil", r.headers["location"])
+        self.assertIn("post_logout_redirect_uri=https%3A%2F%2Fspsil.ejemplo.com%2F", r.headers["location"])
+
+    def test_su_portada_solo_ensena_sus_subapps(self):
+        r = cliente_spsil("susana", ["/PRO/SPSIL/Tareas"]).get("/portada/")
+        self.assertIn("Tareas SPSIL", r.text)
+        self.assertIn('href="/tareas/"', r.text)
+        self.assertIn('src="/spsil-logo.webp"', r.text)
+        self.assertNotIn("Inventario", r.text)
+        self.assertNotIn(">Tareas<", r.text)
+        r = cliente_spsil("ana", ["/PRO/Tareas"]).get("/portada/")   # lo vuestro no da SPSIL
+        self.assertIn("No tienes acceso", r.text)
+
+    def test_en_dev_esta_en_su_ruta_y_en_la_portada_de_dev_sale_una_tarjeta(self):
+        c = cliente("ana", ["/DEV/SPSIL/Tareas"], entorno="dev")
+        r = c.get("/portada/")
+        self.assertIn('href="/spsil/"', r.text)
+        self.assertNotIn("Tareas SPSIL", r.text)
+        r = c.get("/portada/", headers={"X-Principal": "spsil"})
+        self.assertIn('href="/spsil/tareas/"', r.text)
+
+    def test_ajustes_la_agrupa_con_su_dominio(self):
+        with mock.patch.object(panel, "version_en", sin_versiones):
+            r = cliente("henry", ["/IT"]).get("/ajustes/")
+        self.assertIn("App principal", r.text)
+        self.assertIn("Tareas SPSIL", r.text)
+        self.assertIn("https://spsil.ejemplo.com/tareas/", r.text)
+        self.assertIn("Sincronizar", r.text)
+        self.assertIn("va a spsil-portal", r.text)
+        self.assertIn('name="id" value="spsil.tareas"', r.text)
+
+    def test_anadir_dentro(self):
+        c = cliente("henry", ["/IT"])
+        with mock.patch.object(panel, "version_en", sin_versiones):
+            csrf = __import__("re").search(r'name="csrf" value="([^"]+)"', c.get("/ajustes/").text).group(1)
+        with mock.patch.object(github, "leer_manifiesto", return_value=[{"ruta": "linai"}, {"ruta": "paginas"}]):
+            c.post("/ajustes/apps/anadir/", data={"repo": "yo/spsil-proyecto", "dentro": "spsil", "solo": "linai",
+                                                  "contenedor_pro": "spsil-linai", "csrf": csrf})
+        pets = [json.loads(p.read_text())["datos"] for p in Path(TMP, "peticiones").glob("*.json")]
+        self.assertEqual(len(pets), 1)
+        self.assertEqual((pets[0]["dentro"], pets[0]["manifiesto"]["ruta"], pets[0]["contenedor_pro"]), ("spsil", "linai", "spsil-linai"))
+
+    def test_estaticos_sin_salirse(self):
+        d = Path(TMP, "estado", "estaticos", "spsil")
+        d.mkdir(parents=True, exist_ok=True)
+        (d / "spsil-logo.webp").write_bytes(b"RIFF")
+        c = TestClient(panel.app)
+        r = c.get("/ajustes/estaticos/spsil/spsil-logo.webp")
+        self.assertEqual((r.status_code, r.headers["content-type"]), (200, "image/webp"))
+        for malo in ("/ajustes/estaticos/spsil/..%2Fcatalogo.json", "/ajustes/estaticos/spsil/.oculto",
+                     "/ajustes/estaticos/../estado/x.webp"):
+            self.assertEqual(c.get(malo).status_code, 404, malo)
 
 
 if __name__ == "__main__":

@@ -80,6 +80,7 @@ En la raíz de su repositorio. Ajustes → *Añadir una aplicación* → `usuari
 | `despliegue.tipo` | `workflow`, `servidor` (el servidor la despliega desde `imagen`) o `ninguno` | `workflow` |
 | `despliegue.imagen` | (tipo `servidor`) imagen sin versión, p. ej. `ghcr.io/usuario/app` | — |
 | `keycloak.cliente` | su cliente de Keycloak, p. ej. `{ruta}-{entorno}`: se crea si falta y su secret queda en `/opt/apps/servidor/secretos/<cliente>.env` | (tipo `servidor`: `{ruta}-{entorno}`) |
+| `dentro` | la ruta de su app principal (ver abajo): va en `/<principal>/<ruta>/`. También se elige al añadirla | — |
 
 Varias apps en un repositorio: `{"apps": [ {...}, {...} ]}`.
 
@@ -91,6 +92,25 @@ Varias apps en un repositorio: `{"apps": [ {...}, {...} ]}`.
   vale igual en `pro.<dominio>/ruta/` que en un dominio propio.
 - Su login: Keycloak, grupo `<ENTORNO>/<grupo>` para entrar, `IT` administra todo.
 
+### Apps principales (varias apps juntas, p. ej. las de un cliente)
+
+Ajustes → **Nueva app principal** (p. ej. `spsil`, «SPSIL»). Es una portada que agrupa
+subapps; no se despliega. Cada subapp se añade como cualquier app eligiendo **Dentro de**,
+y se despliega por su cuenta, por DEV y PRO como todas:
+
+| | DEV | PRO | PRO en su dominio |
+|---|---|---|---|
+| Portada de la principal | `dev…/spsil/` | `pro…/spsil/` | `spsil.dominio/` |
+| Una subapp | `dev…/spsil/tareas/` | `pro…/spsil/tareas/` | `spsil.dominio/tareas/` |
+| La ven | `/DEV/SPSIL/Tareas` | `/PRO/SPSIL/Tareas` | `/PRO/SPSIL/Tareas` |
+
+Los grupos son iguales en todo el servidor (`/<ENTORNO>/<Principal>/<Grupo>`, con `/Admin`).
+Su contenedor por defecto es `<principal>-<ruta>-<entorno>`; si en un entorno ya existe con
+otro nombre, se dice al añadirla (*Si ya existe con otro nombre*). Cuando PRO va a su
+dominio, `pro…/spsil/…` lleva allí, la portada de ese dominio tiene su propio cliente de
+Keycloak (`servidor-<principal>`, con el tema que se le ponga) y su logo, y se pueden
+redirigir rutas viejas (`stock>/paginas/`).
+
 ### Pasar a PRO
 
 Ajustes → **Pasar a PRO**: pone en PRO la versión que DEV dice tener. Con `workflow`,
@@ -98,12 +118,25 @@ lanza su workflow con `entorno=pro` y esa versión, y si GitHub pide aprobación
 `pro` con revisores) la aprueba sola. Con `servidor`, la despliega el agente, con
 comprobación de salud y vuelta a la anterior si no responde.
 
-### Dominio propio
+### PRO en su dominio
 
-Ajustes → la app → *Más* → **Poner dominio** (solo PRO). Antes, en el DNS, el nombre
-hacia la IP del servidor sin proxy. El servidor crea el host en Nginx Proxy Manager (con
-certificado) hacia la entrada de PRO, la entrada sirve la app en `/` de ese dominio y,
-si la app dice su `keycloak.cliente`, añade la dirección al cliente.
+Ajustes → la app (o la principal) → *Más* → **Poner en su dominio** (solo PRO). El
+servidor, por orden:
+
+1. **DNS**: con el token de Cloudflare guardado (Ajustes → *Cloudflare*, permiso
+   «Zone → DNS → Edit»), crea el registro `A` hacia el servidor sin proxy (nube gris).
+   Si ya hay uno que va a otro sitio, no lo toca y lo dice. Sin token, el registro lo
+   pones tú.
+2. **Entrada de PRO**: sirve ese dominio.
+3. **Nginx Proxy Manager**: el host con su certificado hacia la entrada de PRO. Si el
+   dominio ya iba a otro sitio (p. ej. un portal de antes), lo apunta para poder volver,
+   y copia de allí el logo y `/marca/`.
+4. **Keycloak**: añade la dirección a los clientes de la app (y de sus subapps).
+
+**⟳ Sincronizar** repite todo eso y arregla lo que falte; cada 10 minutos el servidor
+mira solo si el DNS, el proxy, el certificado y la respuesta siguen bien, y Ajustes lo
+enseña. **Quitar su dominio** lo devuelve a donde iba antes (el DNS no se toca). La app
+tiene que aceptar esa dirección (ver *Lo que el servidor espera de una app*).
 
 ## Configuración: `/opt/apps/servidor/servidor.env`
 
@@ -111,7 +144,9 @@ La escribe `instalar`. `DOMINIO_DEV`, `DOMINIO_PRO`, `KEYCLOAK_ISSUER`,
 `KEYCLOAK_CLIENTE`/`KEYCLOAK_SECRETO` (cliente de la portada), `GRUPO_IT`, `RED_PROXY`,
 `ENTORNOS_GESTIONADOS`, `AJUSTES_EN` (dónde está Ajustes: PRO), `LEGADO` (la entrada de
 antes, cuyas rutas se siguen copiando hasta que cada app tenga su manifiesto),
-`PANEL_CLAVE`. Ningún dominio, servidor ni persona va en este repositorio.
+`PANEL_CLAVE`, `SERVIDOR_IP` (opcional: la IP para el DNS; si no, la de `DOMINIO_PRO`).
+Aparte, solo para root: `.npm.env` (acceso a Nginx Proxy Manager) y `.cloudflare.env`
+(token de Cloudflare). Ningún dominio, servidor ni persona va en este repositorio.
 
 ## Pruebas
 

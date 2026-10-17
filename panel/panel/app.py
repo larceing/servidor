@@ -2,10 +2,12 @@
 """Portada (/) y Ajustes (/ajustes/) del servidor.
 
 La entrada de cada entorno (nginx, ver servidor.py) manda aqui "/" (como
-/portada/) y "/ajustes/", con X-Entorno (dev o pro). El login es el de
-Keycloak (cliente propio, Authorization Code): nadie ve nada sin entrar,
-cada uno ve solo las apps de sus grupos (/DEV/<Grupo>, /PRO/<Grupo> o un
-subgrupo) e IT (GRUPO_IT) las ve todas y entra en Ajustes.
+/portada/) y "/ajustes/", con X-Entorno (dev o pro); la portada de una app
+principal (p. ej. /spsil/, o / de su dominio) llega ademas con X-Principal.
+El login es el de Keycloak (cliente propio, Authorization Code; el dominio de
+una principal tiene el suyo): nadie ve nada sin entrar, cada uno ve solo las
+apps de sus grupos (/DEV/<Grupo>, /PRO/<Grupo>, /PRO/<Principal>/<Grupo> o
+un subgrupo) e IT (GRUPO_IT) las ve todas y entra en Ajustes.
 
 Lo que sabe del servidor lo lee de /estado/catalogo.json (lo escribe el
 agente); lo que pide al servidor (dar de alta una app, un dominio, un
@@ -34,6 +36,8 @@ ENTORNOS = ("dev", "pro")
 NOMBRES = {"dev": "DEV", "pro": "PRO"}
 VERSION_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
 RUTA_RE = re.compile(r"^[a-z][a-z0-9-]{1,30}$")
+ID_RE = re.compile(r"^(?:[a-z][a-z0-9-]{1,30}\.)?[a-z][a-z0-9-]{1,30}$")
+FICHERO_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,80}$")
 
 
 def env(k: str, defecto: str = "") -> str:
@@ -80,6 +84,43 @@ def base_url(ent: str) -> str:
     return f"https://{d}" if d else ""
 
 
+def principales(cat: dict | None = None) -> dict:
+    """{ruta: app} de las apps principales dadas de alta."""
+    return {a["ruta"]: a for a in (cat or catalogo()).get("apps", []) if a.get("principal")}
+
+
+def principal_de(request: Request) -> dict | None:
+    """La app principal de esta peticion: X-Principal (lo pone la entrada) o su dominio."""
+    ps = principales()
+    p = request.headers.get("x-principal", "")
+    if RUTA_RE.match(p) and p in ps:
+        return ps[p]
+    host = request.headers.get("host", "").split(":")[0].lower()
+    return next((a for a in ps.values() if host and a.get("dominio") == host), None)
+
+
+def en_dominio_de(request: Request) -> dict | None:
+    """La principal si se esta entrando por su dominio (su login es otro cliente)."""
+    p = principal_de(request)
+    host = request.headers.get("host", "").split(":")[0].lower()
+    return p if p and p.get("dominio") and host == p["dominio"] else None
+
+
+def base_de(request: Request) -> str:
+    p = en_dominio_de(request)
+    return f"https://{p['dominio']}" if p else base_url(entorno_de(request))
+
+
+def cliente_de(request: Request) -> tuple:
+    """(client_id, secret) del login de esta portada."""
+    p = en_dominio_de(request)
+    if p:
+        k = p["ruta"].upper().replace("-", "_")
+        if env(f"KEYCLOAK_CLIENTE_{k}"):
+            return env(f"KEYCLOAK_CLIENTE_{k}"), env(f"KEYCLOAK_SECRETO_{k}")
+    return env("KEYCLOAK_CLIENTE", "servidor"), env("KEYCLOAK_SECRETO")
+
+
 # ── sesion y login con Keycloak ──────────────────────────────────────────────
 
 def usuario(request: Request) -> str:
@@ -99,11 +140,15 @@ def normalizar(gs) -> list:
     return sorted({g.strip().strip("/") for g in (gs or []) if isinstance(g, str) and g.strip().strip("/")})
 
 
-def puede_ver(grupo_app: str, mios: list, it: bool) -> bool:
+def puede_ver(grupos_app, mios: list, it: bool) -> bool:
+    """grupos_app: uno o varios (camino entero); vale con estar en uno o en un subgrupo."""
     if it:
         return True
-    g = (grupo_app or "").strip("/")
-    return bool(g) and any(x == g or x.startswith(g + "/") for x in mios)
+    lista = [grupos_app] if isinstance(grupos_app, str) else list(grupos_app or [])
+    for g in (x.strip("/") for x in lista if isinstance(x, str)):
+        if g and any(x == g or x.startswith(g + "/") for x in mios):
+            return True
+    return False
 
 
 def _siguiente_valido(n: str) -> str:
@@ -117,20 +162,21 @@ def _kc(camino: str) -> str:
 
 @app.get("/ajustes/entrar")
 def entrar(request: Request, next: str = "/"):
-    ent = entorno_de(request)
     estado = secrets.token_urlsafe(24)
-    request.session["login"] = {"estado": estado, "next": _siguiente_valido(next), "ent": ent}
-    q = urlencode({"client_id": env("KEYCLOAK_CLIENTE", "servidor"), "response_type": "code", "scope": "openid",
-                   "redirect_uri": f"{base_url(ent)}/ajustes/entrar/vuelta", "state": estado})
+    base = base_de(request)
+    request.session["login"] = {"estado": estado, "next": _siguiente_valido(next), "base": base}
+    q = urlencode({"client_id": cliente_de(request)[0], "response_type": "code", "scope": "openid",
+                   "redirect_uri": f"{base}/ajustes/entrar/vuelta", "state": estado})
     return RedirectResponse(f"{env('KEYCLOAK_ISSUER').rstrip('/')}/protocol/openid-connect/auth?{q}", status_code=303)
 
 
-def canjear_codigo(code: str, redirect_uri: str) -> dict:
+def canjear_codigo(code: str, redirect_uri: str, cliente: tuple = ()) -> dict:
     """{usuario, grupos, id_token} o {} si Keycloak no lo acepta."""
+    cid, secreto = cliente or (env("KEYCLOAK_CLIENTE", "servidor"), env("KEYCLOAK_SECRETO"))
     try:
         r = httpx.post(_kc("/protocol/openid-connect/token"), timeout=10, data={
             "grant_type": "authorization_code", "code": code, "redirect_uri": redirect_uri,
-            "client_id": env("KEYCLOAK_CLIENTE", "servidor"), "client_secret": env("KEYCLOAK_SECRETO")})
+            "client_id": cid, "client_secret": secreto})
         if r.status_code != 200:
             return {}
         tok = r.json()
@@ -150,10 +196,10 @@ def canjear_codigo(code: str, redirect_uri: str) -> dict:
 @app.get("/ajustes/entrar/vuelta")
 def vuelta(request: Request, code: str = "", state: str = ""):
     login = request.session.pop("login", None) or {}
-    ent = login.get("ent") or entorno_de(request)
     if not code or not state or not secrets.compare_digest(state, login.get("estado", "")):
         return RedirectResponse("/ajustes/entrar?next=/", status_code=303)
-    datos = canjear_codigo(code, f"{base_url(ent)}/ajustes/entrar/vuelta")
+    base = base_de(request)   # la de esta peticion, no la de la sesion (que la pone el navegador)
+    datos = canjear_codigo(code, f"{base}/ajustes/entrar/vuelta", cliente_de(request))
     if not datos:
         return Response("Keycloak no ha aceptado el inicio de sesión. Vuelve a intentarlo desde el inicio.",
                         status_code=400, media_type="text/plain; charset=utf-8")
@@ -167,10 +213,11 @@ def vuelta(request: Request, code: str = "", state: str = ""):
 
 @app.get("/ajustes/salir")
 def salir(request: Request):
-    ent = entorno_de(request)
     id_token = request.session.get("id_token", "")
     request.session.clear()
-    q = {"client_id": env("KEYCLOAK_CLIENTE", "servidor"), "post_logout_redirect_uri": f"{base_url(ent)}/"}
+    p = principal_de(request)
+    vuelta = f"{base_de(request)}/" if en_dominio_de(request) or not p else f"{base_de(request)}/{p['ruta']}/"
+    q = {"client_id": cliente_de(request)[0], "post_logout_redirect_uri": vuelta}
     if id_token:
         q["id_token_hint"] = id_token
     return RedirectResponse(f"{env('KEYCLOAK_ISSUER').rstrip('/')}/protocol/openid-connect/logout?{urlencode(q)}",
@@ -188,28 +235,70 @@ TITULOS = {"pro": "Producción", "dev": "Pruebas"}
 SUBTITULOS = {"pro": "Las aplicaciones en uso.", "dev": "Versiones en pruebas: los datos de aquí no son los reales."}
 
 
+def _enlace(a: dict, host_aqui: str) -> str:
+    """A donde lleva su tarjeta: su camino, o su dominio si esta en otro."""
+    cam = a.get("camino") or f"/{a['ruta']}/"
+    h = a.get("host") or ""
+    return cam if not h or h == host_aqui else f"https://{h}{cam}"
+
+
 @app.get("/portada/")
 def portada(request: Request):
+    p = principal_de(request)
+    inicio = "/" if not p or en_dominio_de(request) else f"/{p['ruta']}/"
     if not usuario(request):
-        return RedirectResponse("/ajustes/entrar?next=/", status_code=303, headers={"Cache-Control": "no-store"})
+        return RedirectResponse(f"/ajustes/entrar?next={inicio}", status_code=303, headers={"Cache-Control": "no-store"})
     ent = entorno_de(request)
     it = es_it(request)
-    apps = [a for a in catalogo().get("entradas", {}).get(ent, []) if puede_ver(a.get("grupo", ""), grupos(request), it)]
+    host = request.headers.get("host", "").split(":")[0].lower()
+    todas = catalogo().get("entradas", {}).get(ent, [])
+    mios = grupos(request)
+    if p:
+        apps = [a for a in todas if a.get("dentro") == p["ruta"] and puede_ver(a.get("grupos") or a.get("grupo", ""), mios, it)]
+        titulo, sub = p["nombre"], ("" if en_dominio_de(request) else f"{SUBTITULOS[ent]}")
+    else:
+        dentro = {}
+        for a in todas:
+            if a.get("dentro") and puede_ver(a.get("grupos") or a.get("grupo", ""), mios, it):
+                dentro[a["dentro"]] = True
+        apps = [a for a in todas if not a.get("dentro") and (
+            puede_ver(a.get("grupos") or a.get("grupo", ""), mios, it) or (a.get("principal") and dentro.get(a["ruta"])))]
+        titulo, sub = TITULOS[ent], SUBTITULOS[ent]
+    apps = [{**a, "enlace": _enlace(a, host),
+             "salud_url": "" if a.get("principal") else _enlace(a, host) + (a.get("salud") or "version/")} for a in apps]
+    logo = (p or {}).get("logo", "") if en_dominio_de(request) else ""
     r = plantillas.TemplateResponse(request, "portada.html", {
-        "usuario": usuario(request), "it": it, "apps": apps, "entorno": ent,
-        "titulo": TITULOS[ent], "sub": SUBTITULOS[ent],
+        "usuario": usuario(request), "it": it, "apps": apps, "entorno": ent, "titulo": titulo, "sub": sub,
+        "logo": f"/{logo}" if logo and FICHERO_RE.match(logo) else "", "propio": bool(en_dominio_de(request)),
         "ajustes": f"{base_url(env('AJUSTES_EN', 'pro'))}/ajustes/" if base_url(env("AJUSTES_EN", "pro")) else "/ajustes/"})
     r.headers["Cache-Control"] = "no-store"
     return r
 
 
+@app.get("/ajustes/estaticos/{ruta}/{fichero:path}")
+def estatico(ruta: str, fichero: str):
+    """Logo y /marca/ de la portada de una principal en su dominio (los copia el servidor)."""
+    partes = fichero.split("/")
+    if not RUTA_RE.match(ruta) or not partes or not all(FICHERO_RE.match(x) for x in partes):
+        return Response(status_code=404)
+    base = (_dir("ESTADO_DIR", "/estado") / "estaticos" / ruta).resolve()
+    f = (base / fichero).resolve()
+    if not f.is_relative_to(base) or not f.is_file():
+        return Response(status_code=404)
+    tipos = {"webp": "image/webp", "png": "image/png", "svg": "image/svg+xml", "ico": "image/x-icon", "jpg": "image/jpeg",
+             "jpeg": "image/jpeg", "css": "text/css", "js": "text/javascript", "woff": "font/woff", "woff2": "font/woff2"}
+    return Response(f.read_bytes(), media_type=tipos.get(f.suffix.lstrip(".").lower(), "application/octet-stream"),
+                    headers={"Cache-Control": "public, max-age=3600", "X-Content-Type-Options": "nosniff"})
+
+
 # ── Ajustes (solo IT) ────────────────────────────────────────────────────────
 
-def version_en(ent: str, ruta: str, camino: str) -> dict:
-    """Lo que dice la app en ese entorno, preguntando a su entrada por dentro."""
+def version_en(ent: str, ruta: str, camino: str, host: str = "") -> dict:
+    """Lo que dice la app en ese entorno, preguntando a su entrada por dentro.
+    ruta: 'tareas' o 'spsil/tareas' (sin barras); host: su dominio si va por otro."""
     try:
-        r = httpx.get(f"http://entrada-{ent}/{ruta}/{camino.lstrip('/')}", timeout=4, follow_redirects=False,
-                      headers={"Host": dominio(ent) or "localhost", "X-Forwarded-Proto": "https", "Accept": "application/json"})
+        r = httpx.get(f"http://entrada-{ent}/{ruta.strip('/')}/{camino.lstrip('/')}", timeout=4, follow_redirects=False,
+                      headers={"Host": host or dominio(ent) or "localhost", "X-Forwarded-Proto": "https", "Accept": "application/json"})
     except httpx.HTTPError:
         return {"ok": False, "version": "", "detalle": "no responde"}
     if r.status_code != 200:
@@ -265,19 +354,26 @@ def tarjetas(cat: dict) -> list:
     """Una por app: las dadas de alta y las que solo tienen su ruta de antes."""
     lista, resultados = [], _resultados(30)
     for a in cat.get("apps", []):
-        lista.append({**a, "alta": True})
+        if not a.get("principal"):
+            lista.append({**a, "id": a.get("id") or a["ruta"], "dentro": a.get("dentro") or "", "alta": True})
     for s in cat.get("sin_alta", []):
         nombre = next((x["nombre"] for e in ENTORNOS for x in cat.get("entradas", {}).get(e, []) if x["ruta"] == s["ruta"]), s["ruta"])
         salud = next((x["salud"] for e in ENTORNOS for x in cat.get("entradas", {}).get(e, []) if x["ruta"] == s["ruta"]), "version/")
-        lista.append({"ruta": s["ruta"], "nombre": nombre, "grupo": s.get("grupo", ""), "version": salud,
+        lista.append({"ruta": s["ruta"], "id": s["ruta"], "dentro": "", "nombre": nombre, "grupo": s.get("grupo", ""), "version": salud,
                       "despliegue": {"tipo": "ninguno"}, "alta": False, "repo": "", "dominio": ""})
+
+    def donde(t: dict, e: str) -> dict:
+        d = (t.get("donde") or {}).get(e) or {}
+        return {"host": d.get("host") or dominio(e), "camino": d.get("camino") or f"/{t['ruta']}/"}
     trabajos = [(t, e) for t in lista for e in ENTORNOS]
     with ThreadPoolExecutor(max_workers=8) as pool:
-        vers = list(pool.map(lambda te: version_en(te[1], te[0]["ruta"], te[0].get("version") or "version/"), trabajos))
+        vers = list(pool.map(lambda te: version_en(te[1], donde(*te)["camino"], te[0].get("version") or "version/",
+                                                   donde(*te)["host"]), trabajos))
     for t in lista:
         t["entornos"] = []
     for (t, e), v in zip(trabajos, vers):
-        t["entornos"].append({"nombre": e, "url": f"{base_url(e)}/{t['ruta']}/" if base_url(e) else "", **v})
+        w = donde(t, e)
+        t["entornos"].append({"nombre": e, "url": f"https://{w['host']}{w['camino']}" if w["host"] else "", **v})
     for t in lista:
         d = t["despliegue"]
         t["pendientes"], t["ejecuciones"], t["error"] = [], [], ""
@@ -298,11 +394,24 @@ def tarjetas(cat: dict) -> list:
                                       and r.get("estado") in ("queued", "in_progress", "waiting", "pending", "requested")), None)
         t["en_curso"] = None
         if t.get("alta"):
-            ent = (en_curso.leer().get(t["ruta"]) or {}).get("entorno", "")
+            ent = (en_curso.leer().get(t["id"]) or {}).get("entorno", "")
             viva = next((e["version"] for e in t["entornos"] if e["nombre"] == ent), "")
-            t["en_curso"] = en_curso.resolver(t["ruta"], d["tipo"], viva, t["ejecuciones"], resultados)
+            t["en_curso"] = en_curso.resolver(t["id"], d["tipo"], viva, t["ejecuciones"], resultados)
+        vistas = []
+        for e in ENTORNOS:
+            x = next((x for x in cat.get("entradas", {}).get(e, []) if (x.get("id") or x["ruta"]) == t["id"]), None)
+            vistas += (x.get("grupos") or ([x["grupo"]] if x.get("grupo") else [])) if x else []
+        t["vista_por"] = list(dict.fromkeys(vistas))
         t["ocupada"] = bool((t["en_curso"] and not t["en_curso"].get("fallo")) or t["en_marcha_github"])
     return lista
+
+
+def secciones(cat: dict, lista: list) -> list:
+    """Ajustes por apps: las sueltas y luego cada principal con sus subapps."""
+    salida = [{"principal": None, "tarjetas": [t for t in lista if not t.get("dentro")]}]
+    for p in principales(cat).values():
+        salida.append({"principal": p, "tarjetas": [t for t in lista if t.get("dentro") == p["ruta"]]})
+    return salida
 
 
 def _solo_it(request: Request):
@@ -329,8 +438,10 @@ def ajustes(request: Request):
         return no
     cat = catalogo()
     en_cola = _peticiones_en_cola()
+    lista = tarjetas(cat)
     r = plantillas.TemplateResponse(request, "ajustes.html", {
-        "usuario": usuario(request), "sin_permiso": False, "cat": cat, "tarjetas": tarjetas(cat),
+        "usuario": usuario(request), "sin_permiso": False, "cat": cat, "tarjetas": lista,
+        "secciones": secciones(cat, lista), "principales": sorted(principales(cat)),
         "token": guardado.hay_token(), "en_cola": en_cola, "resultados": _resultados(),
         "algo_en_curso": bool(en_curso.leer()),
         "agente_vivo": _agente_vivo(cat), "avisos": request.session.pop("avisos", []),
@@ -352,7 +463,7 @@ async def _form(request: Request):
 
 def _reservar(request: Request, a: dict, ent: str, version: str) -> bool:
     """Que no se pidan dos despliegues de la misma app a la vez (en ninguna pestaña)."""
-    otro = en_curso.reservar(a["ruta"], ent, version, usuario(request))
+    otro = en_curso.reservar(a["id"], ent, version, usuario(request))
     if otro:
         avisar(request, "mal", f"{a['nombre']} ya se está desplegando ({otro['version']} en {NOMBRES.get(otro['entorno'], otro['entorno'])}, "
                                f"pedido por {otro['quien']}). Espera a que acabe.")
@@ -364,8 +475,23 @@ def _volver() -> RedirectResponse:
     return RedirectResponse("/ajustes/", status_code=303)
 
 
-def _app(ruta: str) -> dict | None:
-    return next((a for a in catalogo().get("apps", []) if a["ruta"] == ruta), None)
+def _app(ida: str) -> dict | None:
+    """La app dada de alta con ese id (su ruta; una subapp, principal.ruta)."""
+    for a in catalogo().get("apps", []):
+        a = {**a, "id": a.get("id") or a["ruta"], "dentro": a.get("dentro") or ""}
+        if a["id"] == ida:
+            return a
+    return None
+
+
+def _id(form) -> str:
+    v = str(form.get("id") or form.get("ruta") or "")
+    return v if ID_RE.match(v) else ""
+
+
+def _donde(a: dict, ent: str) -> tuple:
+    d = (a.get("donde") or {}).get(ent) or {}
+    return d.get("camino") or f"/{a['ruta']}/", d.get("host") or ""
 
 
 @app.post("/ajustes/github/")
@@ -394,14 +520,60 @@ async def anadir(request: Request):
     if not re.fullmatch(r"[\w.-]+/[\w.-]+", repo) or (rama and not re.fullmatch(r"[\w./-]{1,100}", rama)):
         avisar(request, "mal", "El repositorio va como usuario/nombre.")
         return _volver()
+    dentro = str(form.get("dentro", "")).strip()
+    if dentro and dentro not in principales():
+        avisar(request, "mal", "Esa app principal no existe.")
+        return _volver()
     try:
         apps = github.leer_manifiesto(repo, rama)
     except github.GitHubError as e:
         avisar(request, "mal", f"{repo}: {e}")
         return _volver()
+    solo = str(form.get("solo", "")).strip().strip("/")
+    if solo:
+        apps = [m for m in apps if str(m.get("ruta", "")).strip("/") == solo]
+        if not apps:
+            avisar(request, "mal", f"{repo} no tiene ninguna app con ruta /{solo}/ en su servidor.json.")
+            return _volver()
     for m in apps:
-        pedir(request, "registrar", {"repo": repo, "manifiesto": m})
-    avisar(request, "bien", f"Pedido: dar de alta {', '.join('/' + str(m.get('ruta')) + '/' for m in apps)} desde {repo}.")
+        datos = {"repo": repo, "manifiesto": m}
+        if dentro:
+            datos["dentro"] = dentro
+        for k in ("contenedor_dev", "contenedor_pro"):   # si en un entorno ya se llama distinto
+            if len(apps) == 1 and str(form.get(k, "")).strip():
+                datos[k] = str(form.get(k)).strip()
+        if str(form.get("grupos_extra", "")).strip():
+            datos["grupos_extra"] = str(form.get("grupos_extra"))
+        pedir(request, "registrar", datos)
+    rutas = ", ".join(f"/{dentro + '/' if dentro else ''}{m.get('ruta')}/" for m in apps)
+    avisar(request, "bien", f"Pedido: dar de alta {rutas} desde {repo}.")
+    return _volver()
+
+
+@app.post("/ajustes/apps/principal/")
+async def nueva_principal(request: Request):
+    """Una app principal (p. ej. SPSIL): su portada en /<ruta>/ y dentro sus subapps."""
+    form = await _form(request)
+    if form is None:
+        return Response(status_code=403)
+    ruta = str(form.get("ruta", "")).strip().strip("/").lower()
+    if not RUTA_RE.match(ruta):
+        avisar(request, "mal", "La ruta va en minúsculas, números y guiones (p. ej. spsil).")
+        return _volver()
+    pedir(request, "principal", {"ruta": ruta, "nombre": str(form.get("nombre", "")).strip(),
+                                 "grupo": str(form.get("grupo", "")).strip()})
+    avisar(request, "bien", f"Pedido: app principal /{ruta}/. Luego añádele sus subapps eligiéndola en «Dentro de».")
+    return _volver()
+
+
+@app.post("/ajustes/apps/principal/ajustes/")
+async def ajustes_principal(request: Request):
+    form = await _form(request)
+    if form is None:
+        return Response(status_code=403)
+    pedir(request, "principal_ajustes", {"id": _id(form), "tema": str(form.get("tema", "")), "logo": str(form.get("logo", "")),
+                                         "redirigir": str(form.get("redirigir", ""))})
+    avisar(request, "bien", "Pedido: guardar su portada (tema, logo y rutas viejas).")
     return _volver()
 
 
@@ -410,7 +582,7 @@ async def quitar(request: Request):
     form = await _form(request)
     if form is None:
         return Response(status_code=403)
-    pedir(request, "quitar", {"ruta": str(form.get("ruta", ""))})
+    pedir(request, "quitar", {"id": _id(form)})
     avisar(request, "bien", "Pedido: quitarla del panel y de la entrada (su contenedor y sus grupos no se tocan).")
     return _volver()
 
@@ -420,7 +592,10 @@ async def grupo(request: Request):
     form = await _form(request)
     if form is None:
         return Response(status_code=403)
-    pedir(request, "grupo", {"ruta": str(form.get("ruta", "")), "grupo": str(form.get("grupo", ""))})
+    datos = {"id": _id(form), "grupo": str(form.get("grupo", ""))}
+    if "grupos_extra" in form:
+        datos["grupos_extra"] = str(form.get("grupos_extra", ""))
+    pedir(request, "grupo", datos)
     avisar(request, "bien", "Pedido: cambiar quién la ve en la portada.")
     return _volver()
 
@@ -430,8 +605,42 @@ async def poner_dominio(request: Request):
     form = await _form(request)
     if form is None:
         return Response(status_code=403)
-    pedir(request, "dominio", {"ruta": str(form.get("ruta", "")), "dominio": str(form.get("dominio", ""))})
-    avisar(request, "bien", "Pedido: dominio propio para PRO, con certificado y login.")
+    pedir(request, "dominio", {"id": _id(form), "dominio": str(form.get("dominio", ""))})
+    avisar(request, "bien", "Pedido: PRO en su dominio (DNS, certificado y login). La tarjeta dirá cómo va.")
+    return _volver()
+
+
+@app.post("/ajustes/apps/sincronizar/")
+async def sincronizar(request: Request):
+    form = await _form(request)
+    if form is None:
+        return Response(status_code=403)
+    pedir(request, "sincronizar", {"id": _id(form)})
+    avisar(request, "bien", "Pedido: revisar su dominio y arreglar lo que falte.")
+    return _volver()
+
+
+@app.post("/ajustes/apps/quitar-dominio/")
+async def quitar_dominio(request: Request):
+    form = await _form(request)
+    if form is None:
+        return Response(status_code=403)
+    pedir(request, "quitar_dominio", {"id": _id(form)})
+    avisar(request, "bien", "Pedido: quitarle su dominio (vuelve a donde iba antes).")
+    return _volver()
+
+
+@app.post("/ajustes/cloudflare/")
+async def cloudflare(request: Request):
+    form = await _form(request)
+    if form is None:
+        return Response(status_code=403)
+    tok = str(form.get("token", "")).strip()
+    if not re.fullmatch(r"[A-Za-z0-9_-]{30,200}", tok):
+        avisar(request, "mal", "Eso no parece un token de Cloudflare.")
+        return _volver()
+    pedir(request, "cloudflare", {"token": tok})
+    avisar(request, "bien", "Pedido: guardar el token de Cloudflare (solo lo lee el servidor).")
     return _volver()
 
 
@@ -451,7 +660,7 @@ async def poner(request: Request):
     form = await _form(request)
     if form is None:
         return Response(status_code=403)
-    a = _app(str(form.get("ruta", "")))
+    a = _app(_id(form))
     ent, version = str(form.get("entorno", "")), str(form.get("version", "")).strip()
     if not a or ent not in ENTORNOS or not VERSION_RE.match(version):
         avisar(request, "mal", "Datos no válidos.")
@@ -469,13 +678,13 @@ async def poner(request: Request):
         if d["tipo"] == "workflow":
             github.lanzar(d, ent, version)
         elif d["tipo"] == "servidor":
-            pedir(request, "desplegar", {"ruta": a["ruta"], "entorno": ent, "version": version})
+            pedir(request, "desplegar", {"id": a["id"], "entorno": ent, "version": version})
         else:
             raise github.GitHubError(f"{a['nombre']} no dice cómo se despliega.")
         que = "la versión anterior" if version == "anterior" else version
         avisar(request, "bien", f"Pedido: {que} de {a['nombre']} en {NOMBRES[ent]}. Tarda unos minutos.")
     except github.GitHubError as e:
-        en_curso.soltar(a["ruta"])
+        en_curso.soltar(a["id"])
         avisar(request, "mal", str(e))
     return _volver()
 
@@ -486,22 +695,22 @@ async def pasar_a_pro(request: Request):
     form = await _form(request)
     if form is None:
         return Response(status_code=403)
-    a = _app(str(form.get("ruta", "")))
-    if not a:
+    a = _app(_id(form))
+    if not a or a.get("principal"):
         avisar(request, "mal", "Esa app no está dada de alta.")
         return _volver()
     d = a["despliegue"]
     if d["tipo"] == "servidor":
         v = (a.get("versiones") or {}).get("dev", "")
     else:
-        v = version_en("dev", a["ruta"], a.get("version") or "version/")["version"]
+        v = version_en("dev", _donde(a, "dev")[0], a.get("version") or "version/", _donde(a, "dev")[1])["version"]
     if not VERSION_RE.match(v or "") or v == "anterior":
         avisar(request, "mal", f"No sé qué versión tiene {a['nombre']} en DEV: escríbela en «Poner» de PRO.")
         return _volver()
     if d["tipo"] == "servidor":
         en_pro = (a.get("versiones") or {}).get("pro", "")
     else:
-        en_pro = version_en("pro", a["ruta"], a.get("version") or "version/")["version"]
+        en_pro = version_en("pro", _donde(a, "pro")[0], a.get("version") or "version/", _donde(a, "pro")[1])["version"]
     if en_pro == v:
         avisar(request, "bien", f"PRO ya tiene {v} de {a['nombre']}, lo mismo que DEV: no hay nada que pasar.")
         return _volver()
@@ -514,12 +723,12 @@ async def pasar_a_pro(request: Request):
         if d["tipo"] == "workflow":
             github.pasar_a_pro(d, v)
         elif d["tipo"] == "servidor":
-            pedir(request, "desplegar", {"ruta": a["ruta"], "entorno": "pro", "version": v})
+            pedir(request, "desplegar", {"id": a["id"], "entorno": "pro", "version": v})
         else:
             raise github.GitHubError(f"{a['nombre']} no dice cómo se despliega.")
         avisar(request, "bien", f"Pedido: {v} de {a['nombre']} a PRO. Tarda unos minutos; la tarjeta lo dirá.")
     except github.GitHubError as e:
-        en_curso.soltar(a["ruta"])
+        en_curso.soltar(a["id"])
         avisar(request, "mal", str(e))
     return _volver()
 
@@ -529,7 +738,7 @@ async def revisar(request: Request):
     form = await _form(request)
     if form is None:
         return Response(status_code=403)
-    a = _app(str(form.get("ruta", "")))
+    a = _app(_id(form))
     aprobar = form.get("decision") == "aprobar"
     try:
         if not a or a["despliegue"]["tipo"] != "workflow":
