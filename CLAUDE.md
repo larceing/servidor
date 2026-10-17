@@ -20,3 +20,7 @@ user doc and the `servidor.json` manifest spec. UI text and docs are in Spanish.
   `servidor.env` or an app's manifest. No app code lives here.
 - Tests: `python -m unittest discover -s pruebas -v` and
   `(cd panel && python -m unittest discover -s tests -v)`. Docker/Keycloak/GitHub mocked.
+
+Guide for adding a product or an app (for people and AIs): `docs/README.md`, then
+`docs/NUEVA_APP.md` / `docs/NUEVO_PRODUCTO.md`; rules for agents in `AGENTS.md`. When a change
+alters how apps plug in or deploy, update `docs/` in the same PR.
