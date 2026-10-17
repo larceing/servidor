@@ -3,7 +3,7 @@
 <html lang="es">
 <head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>{{ titulo }} · {{ entorno|upper }}</title>
+<title>{{ titulo }}{% if not propio %} · {{ entorno|upper }}{% endif %}</title>
 <style>
 :root{--fondo:#f4f6fb;--tarjeta:#fff;--texto:#111827;--suave:#6b7280;--borde:#e5e7eb;--acento:#2563eb;--ok:#16a34a;--mal:#9ca3af;--sombra:0 1px 2px rgba(16,24,40,.05),0 8px 24px rgba(16,24,40,.06)}
 @media (prefers-color-scheme:dark){:root{--fondo:#0b1020;--tarjeta:#141a2e;--texto:#e5e7eb;--suave:#9ca3af;--borde:#232b45;--acento:#60a5fa;--ok:#4ade80;--mal:#6b7280;--sombra:none}}
@@ -30,12 +30,14 @@ footer{text-align:center;color:var(--suave);font-size:13px;padding:24px}
 .sesion a.salir{color:var(--acento);text-decoration:none;font-weight:600}
 .ajustes{display:inline-flex;align-items:center;gap:6px;padding:8px 14px;border-radius:10px;border:1px solid var(--borde);background:var(--tarjeta);color:inherit;text-decoration:none;font-weight:600;font-size:14px}
 .ajustes:hover{border-color:var(--acento)}
+.logo{height:40px;width:auto}
 </style>
 </head>
 <body>
 <main>
   <div class="cab">
-    <h1>{{ titulo }}</h1><span class="chip {{ entorno }}">{{ entorno|upper }}</span>
+    {% if logo %}<img class="logo" src="{{ logo }}" alt="">{% endif %}
+    <h1>{{ titulo }}</h1>{% if not propio %}<span class="chip {{ entorno }}">{{ entorno|upper }}</span>{% endif %}
     <div class="sesion">
       <span>{{ usuario }}</span>
       <a class="salir" href="/ajustes/salir" title="Cerrar sesión para entrar con otro usuario">Salir</a>
@@ -45,13 +47,13 @@ footer{text-align:center;color:var(--suave);font-size:13px;padding:24px}
   <p class="sub">{{ sub }}</p>
   <div class="apps">
     {% for a in apps %}
-    <a class="app" href="/{{ a.ruta }}/" data-salud="/{{ a.ruta }}/{{ a.salud }}"><span class="ico">{{ a.nombre[:1] }}</span><span><div class="nom">{{ a.nombre }}</div><div class="est"><span class="punto"></span><span class="txt">Comprobando...</span></div></span></a>
+    <a class="app" href="{{ a.enlace }}"{% if a.salud_url and not a.salud_url.startswith('https://') %} data-salud="{{ a.salud_url }}"{% endif %}><span class="ico">{{ a.nombre[:1] }}</span><span><div class="nom">{{ a.nombre }}</div><div class="est"><span class="punto"></span><span class="txt">{% if a.principal %}Sus aplicaciones{% elif a.salud_url.startswith('https://') %}En su dominio{% else %}Comprobando...{% endif %}</span></div></span></a>
     {% else %}
     <p class="vacio">No tienes acceso a ninguna aplicación de este entorno. Si crees que deberías, pídeselo a IT.</p>
     {% endfor %}
   </div>
 </main>
-<footer>Entorno {{ entorno|upper }}</footer>
+<footer>{% if propio %}{{ titulo }}{% else %}Entorno {{ entorno|upper }}{% endif %}</footer>
 <script>
 var VERSIONES = {{ it|tojson }};   // la version de cada app, solo para IT
 document.querySelectorAll(".app[data-salud]").forEach(function (a) {
