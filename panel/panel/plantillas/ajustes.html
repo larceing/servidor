@@ -1,0 +1,220 @@
+<!doctype html>
+{# Ajustes del servidor (solo IT): todas las apps en DEV y PRO. #}
+<html lang="es">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Ajustes del servidor</title>
+<style>
+  :root { --fondo:#f4f6fb; --panel:#fff; --ink:#111827; --muted:#6b7280; --border:#e5e7eb; --acento:#2563eb;
+          --verde:#16a34a; --rojo:#dc2626; --gris:#9ca3af; --ambar:#d97706; --ambar-t:#fef3c7; --verde-t:#dcfce7; --rojo-t:#fee2e2; --azul-t:#dbeafe; --gris-t:#f3f4f6;
+          --sombra:0 1px 2px rgba(16,24,40,.05),0 8px 24px rgba(16,24,40,.06); }
+  @media (prefers-color-scheme: dark) { :root { --fondo:#0b1020; --panel:#141a2e; --ink:#e5e7eb; --muted:#9ca3af; --border:#232b45; --acento:#60a5fa;
+          --ambar-t:#3b2f12; --verde-t:#12301f; --rojo-t:#3b1515; --azul-t:#132544; --gris-t:#1d2438; --sombra:none; } }
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; background: var(--fondo); color: var(--ink); font-size: 14px; }
+  a { color: var(--acento); }
+  .barra { max-width: 980px; margin: 0 auto; padding: 18px 20px 0; display: flex; align-items: center; gap: 12px; color: var(--muted); }
+  .barra a { text-decoration: none; font-weight: 600; }
+  .barra .yo { margin-left: auto; }
+  .pag { padding: 18px 20px 48px; max-width: 980px; margin: 0 auto; }
+  h1 { font-size: 24px; margin: 0 0 4px; letter-spacing: -.01em; }
+  .intro { margin: 0 0 20px; font-size: 13px; color: var(--muted); }
+  .texto { font-size: 12px; color: var(--muted); line-height: 1.45; }
+  .aviso { border: 1px solid var(--border); background: var(--panel); border-radius: 10px; padding: 11px 14px; margin-bottom: 14px; font-size: 13px; line-height: 1.5; }
+  .aviso.mal { border-color: var(--rojo); } .aviso.bien { border-color: var(--verde); }
+  .app { background: var(--panel); border: 1px solid var(--border); border-radius: 14px; box-shadow: var(--sombra); padding: 16px 18px; margin-bottom: 16px; }
+  .app-cab { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; }
+  .app-cab h2 { font-size: 16px; margin: 0; }
+  .pendiente { border: 1px solid var(--ambar); background: var(--ambar-t); border-radius: 10px; padding: 10px 12px; margin-bottom: 12px; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; font-size: 13px; }
+  .entornos { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; }
+  .entorno { border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; }
+  .entorno h3 { margin: 0; font-size: 13px; display: flex; justify-content: space-between; align-items: center; }
+  .version { font-size: 18px; font-weight: 700; margin: 6px 0 2px; font-family: ui-monospace, monospace; word-break: break-all; }
+  .punto { display: inline-block; width: 9px; height: 9px; border-radius: 50%; background: var(--gris); }
+  .punto.ok { background: var(--verde); } .punto.mal { background: var(--rojo); }
+  .fila { display: flex; gap: 6px; margin-top: 10px; flex-wrap: wrap; align-items: center; }
+  .fila input[type=text] { flex: 1; min-width: 110px; }
+  .pro { margin-top: 12px; padding-top: 12px; border-top: 1px dashed var(--border); display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+  .estado { font-size: 11.5px; font-weight: 600; padding: 2px 8px; border-radius: 999px; background: var(--gris-t); }
+  .estado.success, .estado.ok { background: var(--verde-t); } .estado.failure, .estado.fallo { background: var(--rojo-t); }
+  .estado.waiting { background: var(--ambar-t); } .estado.in_progress, .estado.queued, .estado.cola { background: var(--azul-t); }
+  .tabla { border: 1px solid var(--border); border-radius: 10px; overflow: hidden; margin-top: 10px; }
+  .tabla > div { display: flex; gap: 10px; align-items: center; padding: 8px 12px; border-bottom: 1px solid var(--border); font-size: 12.5px; flex-wrap: wrap; }
+  .tabla > div:last-child { border-bottom: none; }
+  .crece { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .tabla pre { flex-basis: 100%; margin: 4px 0 0; white-space: pre-wrap; font-size: 11.5px; color: var(--muted); }
+  .seccion { font-size: 12px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; color: var(--muted); margin: 28px 0 10px; }
+  .formularios { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 16px; }
+  .form { background: var(--panel); border: 1px solid var(--border); border-radius: 14px; padding: 16px 18px; box-shadow: var(--sombra); }
+  .form h3 { margin: 0 0 4px; font-size: 15px; }
+  .grupo-campo { margin-bottom: 10px; }
+  .grupo-campo label { display: block; font-size: 11px; font-weight: 700; letter-spacing: .04em; color: var(--muted); margin-bottom: 4px; }
+  .pag input[type=text], .pag input[type=password], .pag input[type=email] {
+    font-family: inherit; padding: 7px 10px; border: 1px solid var(--border); border-radius: 8px; font-size: 13px; width: 100%; background: var(--panel); color: var(--ink); }
+  .fila input[type=text] { width: auto; }
+  .b1, .b2 { font: inherit; font-weight: 600; font-size: 13px; padding: 8px 14px; border-radius: 8px; cursor: pointer; border: 1px solid var(--acento); }
+  .b1 { background: var(--acento); color: #fff; }
+  .b2 { background: var(--panel); color: var(--ink); border-color: var(--border); }
+  .b2:hover { border-color: var(--acento); }
+  .b1[disabled] { opacity: .5; cursor: not-allowed; }
+  .pq { padding: 6px 12px; font-size: 12.5px; }
+  details summary { cursor: pointer; font-size: 12.5px; color: var(--muted); margin-top: 10px; }
+  .mas { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; margin-top: 10px; }
+</style>
+</head>
+<body>
+<div class="barra">
+  <a href="/">← Portada</a>
+  <span class="yo">{{ usuario }}</span>
+  <a href="/ajustes/salir">Salir</a>
+</div>
+<div class="pag">
+{% if sin_permiso %}
+  <h1>Ajustes del servidor</h1>
+  <div class="aviso mal">Esto es solo para IT. Si eres de IT, sal y entra con tu usuario.</div>
+{% else %}
+  {% set estados = {"success": "bien", "failure": "falló", "cancelled": "cancelada", "skipped": "omitida", "waiting": "esperando", "in_progress": "en marcha", "queued": "en cola"} %}
+  <h1>Ajustes del servidor</h1>
+  <p class="intro">Todas las aplicaciones en DEV (pruebas) y PRO. Solo IT.</p>
+  {% for m in avisos %}<div class="aviso {{ m.tipo }}">{{ m.texto }}</div>{% endfor %}
+  {% if not agente_vivo %}<div class="aviso mal">El servidor no está atendiendo lo que se pide desde aquí (su servicio no da señales). Los despliegues por GitHub sí funcionan.</div>{% endif %}
+  {% if en_cola %}<div class="aviso">⏳ El servidor está haciendo lo que has pedido ({{ en_cola|length }}). Esta página se actualiza sola.</div>{% endif %}
+  {% if not token %}<div class="aviso">Para desplegar hace falta el token de GitHub: abajo, en <b>Conexión con GitHub</b>.</div>{% endif %}
+
+  {% for t in tarjetas %}
+  {% set d = t.despliegue %}
+  <div class="app" id="app-{{ t.ruta }}">
+    <div class="app-cab">
+      <div>
+        <h2>{{ t.nombre }}</h2>
+        <div class="texto">/{{ t.ruta }}/ ·
+          {% if d.tipo == "workflow" %}{{ d.repo }} · {{ d.workflow }}{% elif d.tipo == "servidor" %}la despliega el servidor ({{ d.imagen }}){% elif t.alta %}sin despliegue{% else %}aún sin manifiesto: solo su ruta{% endif %}
+          · {% if t.grupo %}la ven /DEV/{{ t.grupo }} y /PRO/{{ t.grupo }}{% else %}solo la ve IT{% endif %}
+          {% if t.dominio %} · <a href="https://{{ t.dominio }}/" target="_blank" rel="noopener">{{ t.dominio }}</a>{% endif %}</div>
+      </div>
+    </div>
+    {% if t.error %}<div class="aviso mal">{{ t.error }}</div>{% endif %}
+    {% for p in t.pendientes %}
+    <div class="pendiente">
+      <span>🔔 <b>{{ p.titulo }}</b> espera aprobación para <b>{{ nombres.get(p.entorno, p.entorno) }}</b>.</span>
+      {% if p.puede %}
+      <form method="post" action="/ajustes/revisar/"><input type="hidden" name="csrf" value="{{ csrf }}">
+        <input type="hidden" name="ruta" value="{{ t.ruta }}"><input type="hidden" name="run_id" value="{{ p.run_id }}"><input type="hidden" name="entorno_id" value="{{ p.entorno_id }}">
+        <button class="b1 pq" name="decision" value="aprobar" type="submit">Aprobar</button>
+        <button class="b2 pq" name="decision" value="rechazar" type="submit">Rechazar</button>
+      </form>
+      {% else %}<span class="texto">El dueño del token no puede aprobarlo. <a href="{{ p.url }}" target="_blank" rel="noopener">Abrir en GitHub</a></span>{% endif %}
+    </div>
+    {% endfor %}
+    <div class="entornos">
+      {% for e in t.entornos %}
+      <div class="entorno">
+        <h3>{{ nombres[e.nombre] }} <span class="punto {{ 'ok' if e.ok else 'mal' }}" title="{{ e.detalle or 'responde' }}"></span></h3>
+        <div class="version">{{ e.version or "—" }}</div>
+        <div class="texto">{% if e.url %}<a href="{{ e.url }}" target="_blank" rel="noopener">{{ e.url.split('//')[-1] }}</a>{% endif %}{% if e.detalle %} · {{ e.detalle }}{% endif %}</div>
+        {% if t.alta and d.tipo in ("workflow", "servidor") %}
+        <form class="fila" method="post" action="/ajustes/poner/"><input type="hidden" name="csrf" value="{{ csrf }}">
+          <input type="hidden" name="ruta" value="{{ t.ruta }}"><input type="hidden" name="entorno" value="{{ e.nombre }}">
+          <input type="text" name="version" placeholder="versión (sha-1a2b3c4, v1.2.0)" required>
+          <button class="b2 pq" type="submit" onclick="return confirm('¿Poner esa versión de {{ t.nombre }} en {{ nombres[e.nombre] }}?')">Poner</button>
+          {% if d.tipo == "servidor" or d.anterior %}
+          <button class="b2 pq" type="submit" name="version" value="anterior" formnovalidate title="Volver a la versión buena anterior" onclick="return confirm('¿Volver {{ t.nombre }} en {{ nombres[e.nombre] }} a la versión anterior?')">↩ Anterior</button>
+          {% endif %}
+        </form>
+        {% endif %}
+      </div>
+      {% endfor %}
+    </div>
+    {% if t.alta and d.tipo in ("workflow", "servidor") %}
+    <form class="pro" method="post" action="/ajustes/pasar-a-pro/"><input type="hidden" name="csrf" value="{{ csrf }}">
+      <input type="hidden" name="ruta" value="{{ t.ruta }}">
+      <button class="b1" type="submit" {% if not t.version_dev %}disabled title="DEV no dice su versión"{% endif %}
+              onclick="return confirm('¿Poner en PRO la versión {{ t.version_dev }} de {{ t.nombre }}?')">Pasar a PRO</button>
+      <span class="texto">{% if t.version_dev %}Pone en PRO lo que tiene DEV ahora: <b>{{ t.version_dev }}</b>. Si GitHub pide aprobación, se aprueba sola.{% else %}DEV no dice qué versión tiene: usa «Poner» en PRO.{% endif %}</span>
+    </form>
+    {% endif %}
+    <details>
+      <summary>Más: quién la ve, dominio propio{% if t.ejecuciones %}, últimas ejecuciones{% endif %}</summary>
+      <div class="mas">
+        <form method="post" action="/ajustes/apps/grupo/"><input type="hidden" name="csrf" value="{{ csrf }}">
+          <input type="hidden" name="ruta" value="{{ t.ruta }}">
+          <div class="grupo-campo"><label>GRUPO DE KEYCLOAK (SIN /DEV/ NI /PRO/)</label><input type="text" name="grupo" value="{{ t.grupo }}" placeholder="p. ej. {{ t.nombre }}" required></div>
+          <button class="b2 pq" type="submit">Guardar grupo</button>
+          <div class="texto">Lo ven /DEV/grupo en DEV y /PRO/grupo en PRO (y sus subgrupos). Si los grupos no existen, se crean (con Admin).</div>
+        </form>
+        {% if t.alta %}
+        <form method="post" action="/ajustes/apps/dominio/"><input type="hidden" name="csrf" value="{{ csrf }}">
+          <input type="hidden" name="ruta" value="{{ t.ruta }}">
+          <div class="grupo-campo"><label>DOMINIO PROPIO EN PRO</label><input type="text" name="dominio" value="{{ t.dominio }}" placeholder="app.midominio.com" required></div>
+          <button class="b2 pq" type="submit" onclick="return confirm('¿Poner ese dominio a {{ t.nombre }} de PRO?')">Poner dominio</button>
+          <div class="texto">Antes, en el DNS: ese nombre hacia la IP del servidor, sin proxy (nube gris). La dirección de siempre sigue funcionando.</div>
+        </form>
+        {% endif %}
+      </div>
+      {% if t.ejecuciones %}
+      <div class="tabla">
+        {% for e in t.ejecuciones %}
+        <div><span class="estado {{ e.resultado or e.estado }}">{{ estados.get(e.resultado or e.estado, e.resultado or e.estado) }}</span>
+          <span class="crece">{{ e.titulo }}</span><span class="texto">{{ e.fecha }}</span><a href="{{ e.url }}" target="_blank" rel="noopener">detalle</a></div>
+        {% endfor %}
+      </div>
+      {% endif %}
+      {% if t.alta %}
+      <form method="post" action="/ajustes/apps/quitar/" style="margin-top:10px"><input type="hidden" name="csrf" value="{{ csrf }}">
+        <input type="hidden" name="ruta" value="{{ t.ruta }}">
+        <button class="b2 pq" type="submit" onclick="return confirm('¿Quitar {{ t.nombre }} del panel? Sus contenedores, datos y grupos no se tocan.')">Quitar del panel</button>
+        {% if t.repo %}<span class="texto">Para releer su servidor.json, añádela otra vez abajo.</span>{% endif %}
+      </form>
+      {% endif %}
+    </details>
+  </div>
+  {% endfor %}
+
+  <div class="seccion">Añadir</div>
+  <div class="formularios">
+    <form class="form" method="post" action="/ajustes/apps/anadir/"><input type="hidden" name="csrf" value="{{ csrf }}">
+      <h3>Añadir una aplicación</h3>
+      <p class="texto" style="margin:0 0 12px;">Su repositorio tiene que llevar un <b>servidor.json</b> (nombre, ruta, grupo, cómo se despliega). El servidor le pone su ruta en DEV y PRO, sus grupos en Keycloak y su tarjeta. Sirve también para releerlo.</p>
+      <div class="grupo-campo"><label>REPOSITORIO *</label><input type="text" name="repo" placeholder="usuario/mi-app" required></div>
+      <div class="grupo-campo"><label>RAMA</label><input type="text" name="rama" placeholder="main"></div>
+      <button class="b1" type="submit">Añadir</button>
+    </form>
+    <form class="form" method="post" action="/ajustes/github/"><input type="hidden" name="csrf" value="{{ csrf }}">
+      <h3>Conexión con GitHub</h3>
+      <p class="texto" style="margin:0 0 12px;">Un token (fine-grained) que vea los repositorios de las apps, con permiso de lectura y escritura en Actions, Contents y Deployments. Se guarda cifrado.</p>
+      <div class="grupo-campo"><label>TOKEN{% if not token %} *{% endif %}</label>
+        <input type="password" name="token" autocomplete="new-password" placeholder="{{ '•••••• (guardado; vacío = conservarlo)' if token else 'github_pat_…' }}"></div>
+      <button class="b1" type="submit">Guardar</button>
+    </form>
+    <form class="form" method="post" action="/ajustes/npm/"><input type="hidden" name="csrf" value="{{ csrf }}">
+      <h3>Acceso a Nginx Proxy Manager</h3>
+      <p class="texto" style="margin:0 0 12px;">Para los dominios propios. {% if cat.npm %}<b>Ya está guardado.</b>{% else %}Una sola vez.{% endif %} Se queda en el servidor.</p>
+      <div class="grupo-campo"><label>EMAIL</label><input type="email" name="email" required></div>
+      <div class="grupo-campo"><label>CONTRASEÑA</label><input type="password" name="clave" autocomplete="new-password" required></div>
+      <button class="b2" type="submit">Guardar</button>
+    </form>
+  </div>
+
+  <div class="seccion">Lo último que ha hecho el servidor</div>
+  <div class="tabla">
+    {% for p in en_cola %}<div><span class="estado cola">en cola</span><span class="crece">{{ p }}</span></div>{% endfor %}
+    {% for r in resultados %}
+    <div><span class="estado {{ 'ok' if r.ok else 'fallo' }}">{{ 'bien' if r.ok else 'falló' }}</span>
+      <span class="crece">{{ r.accion }} · {{ r.quien }}</span><span class="texto">{{ (r.fin or '')|replace('T', ' ')|truncate(16, True, '') }}</span>
+      {% if r.salida %}<pre>{{ r.salida }}</pre>{% endif %}</div>
+    {% else %}{% if not en_cola %}<div class="texto">Nada pedido todavía.</div>{% endif %}{% endfor %}
+  </div>
+  <p class="texto" style="margin-top:24px">Servidor {{ cat.version or "?" }} · panel {{ version }}</p>
+{% endif %}
+</div>
+{% if en_cola %}
+<script>
+// cuando el servidor acaba lo pedido, se recarga para ensenar el resultado
+setInterval(function () {
+  fetch("/ajustes/estado.json", { cache: "no-store" }).then(function (r) { return r.json(); })
+    .then(function (d) { if (d.en_cola && d.en_cola.length === 0) location.reload(); }).catch(function () {});
+}, 3000);
+</script>
+{% endif %}
+</body>
+</html>

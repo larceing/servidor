@@ -1,0 +1,38 @@
+# Pruebas de cada cambio. El servidor solo se actualiza con commits de main
+# que las pasan (servidor.py actualizar mira este resultado).
+name: Pruebas
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  pruebas:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: panel/requirements.txt
+      - run: pip install -r panel/requirements.txt
+      - name: servidor.py
+        run: python -m unittest discover -s pruebas -v
+      - name: panel (portada y Ajustes)
+        working-directory: panel
+        run: python -m unittest discover -s tests -v
+      - name: nginx acepta la configuración que se genera
+        run: |
+          d=$(mktemp -d)
+          printf 'DOMINIO_DEV=dev.ejemplo.com\nDOMINIO_PRO=pro.ejemplo.com\nENTORNOS_GESTIONADOS=dev pro\nKEYCLOAK_ISSUER=https://u.ejemplo.com/auth/realms/r\n' > "$d/servidor.env"
+          mkdir -p "$d/registro"
+          printf '{"repo":"a/b","manifiesto":{"ruta":"tareas","prefijo":"conservar","despliegue":{"workflow":"d.yml"}}}' > "$d/registro/tareas.json"
+          printf '{"repo":"a/c","dominio":"app.ejemplo.com","manifiesto":{"ruta":"app","despliegue":{"tipo":"servidor","imagen":"ghcr.io/a/c"}}}' > "$d/registro/app.json"
+          SERVIDOR_DIR="$d" python servidor.py comprobar
+      - name: la imagen del panel se construye
+        run: docker build -q -t panel-prueba panel
