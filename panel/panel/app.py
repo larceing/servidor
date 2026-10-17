@@ -28,7 +28,7 @@ from fastapi.responses import JSONResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
 
-from . import github, guardado
+from . import en_curso, github, guardado
 
 ENTORNOS = ("dev", "pro")
 NOMBRES = {"dev": "DEV", "pro": "PRO"}
@@ -263,7 +263,7 @@ def _agente_vivo(cat: dict) -> bool:
 
 def tarjetas(cat: dict) -> list:
     """Una por app: las dadas de alta y las que solo tienen su ruta de antes."""
-    lista = []
+    lista, resultados = [], _resultados(30)
     for a in cat.get("apps", []):
         lista.append({**a, "alta": True})
     for s in cat.get("sin_alta", []):
@@ -292,6 +292,16 @@ def tarjetas(cat: dict) -> list:
             for e in t["entornos"]:
                 e["version"] = e["version"] or vs.get(e["nombre"], "")
         t["version_dev"] = next((e["version"] for e in t["entornos"] if e["nombre"] == "dev"), "")
+        t["version_pro"] = next((e["version"] for e in t["entornos"] if e["nombre"] == "pro"), "")
+        # lo que GitHub esta desplegando (no las pruebas de un PR)
+        t["en_marcha_github"] = next((r for r in t["ejecuciones"] if r.get("evento") in ("push", "workflow_dispatch", "release")
+                                      and r.get("estado") in ("queued", "in_progress", "waiting", "pending", "requested")), None)
+        t["en_curso"] = None
+        if t.get("alta"):
+            ent = (en_curso.leer().get(t["ruta"]) or {}).get("entorno", "")
+            viva = next((e["version"] for e in t["entornos"] if e["nombre"] == ent), "")
+            t["en_curso"] = en_curso.resolver(t["ruta"], d["tipo"], viva, t["ejecuciones"], resultados)
+        t["ocupada"] = bool((t["en_curso"] and not t["en_curso"].get("fallo")) or t["en_marcha_github"])
     return lista
 
 
@@ -322,6 +332,7 @@ def ajustes(request: Request):
     r = plantillas.TemplateResponse(request, "ajustes.html", {
         "usuario": usuario(request), "sin_permiso": False, "cat": cat, "tarjetas": tarjetas(cat),
         "token": guardado.hay_token(), "en_cola": en_cola, "resultados": _resultados(),
+        "algo_en_curso": bool(en_curso.leer()),
         "agente_vivo": _agente_vivo(cat), "avisos": request.session.pop("avisos", []),
         "csrf": request.session.setdefault("csrf", secrets.token_urlsafe(24)), "nombres": NOMBRES,
         "portada": "/", "version": env("VERSION", "local")})
@@ -337,6 +348,16 @@ async def _form(request: Request):
     if not secrets.compare_digest(str(form.get("csrf", "")), request.session.get("csrf", "-")):
         return None
     return form
+
+
+def _reservar(request: Request, a: dict, ent: str, version: str) -> bool:
+    """Que no se pidan dos despliegues de la misma app a la vez (en ninguna pestaña)."""
+    otro = en_curso.reservar(a["ruta"], ent, version, usuario(request))
+    if otro:
+        avisar(request, "mal", f"{a['nombre']} ya se está desplegando ({otro['version']} en {NOMBRES.get(otro['entorno'], otro['entorno'])}, "
+                               f"pedido por {otro['quien']}). Espera a que acabe.")
+        return False
+    return True
 
 
 def _volver() -> RedirectResponse:
@@ -436,10 +457,16 @@ async def poner(request: Request):
         avisar(request, "mal", "Datos no válidos.")
         return _volver()
     d = a["despliegue"]
+    if d["tipo"] == "workflow" and version == "anterior" and not d.get("anterior"):
+        avisar(request, "mal", f"El workflow de {a['nombre']} no sabe volver a la anterior: escribe la versión.")
+        return _volver()
+    if d["tipo"] not in ("workflow", "servidor"):
+        avisar(request, "mal", f"{a['nombre']} no dice cómo se despliega.")
+        return _volver()
+    if not _reservar(request, a, ent, version):
+        return _volver()
     try:
         if d["tipo"] == "workflow":
-            if version == "anterior" and not d.get("anterior"):
-                raise github.GitHubError(f"El workflow de {a['nombre']} no sabe volver a la anterior: escribe la versión.")
             github.lanzar(d, ent, version)
         elif d["tipo"] == "servidor":
             pedir(request, "desplegar", {"ruta": a["ruta"], "entorno": ent, "version": version})
@@ -448,6 +475,7 @@ async def poner(request: Request):
         que = "la versión anterior" if version == "anterior" else version
         avisar(request, "bien", f"Pedido: {que} de {a['nombre']} en {NOMBRES[ent]}. Tarda unos minutos.")
     except github.GitHubError as e:
+        en_curso.soltar(a["ruta"])
         avisar(request, "mal", str(e))
     return _volver()
 
@@ -470,6 +498,18 @@ async def pasar_a_pro(request: Request):
     if not VERSION_RE.match(v or "") or v == "anterior":
         avisar(request, "mal", f"No sé qué versión tiene {a['nombre']} en DEV: escríbela en «Poner» de PRO.")
         return _volver()
+    if d["tipo"] == "servidor":
+        en_pro = (a.get("versiones") or {}).get("pro", "")
+    else:
+        en_pro = version_en("pro", a["ruta"], a.get("version") or "version/")["version"]
+    if en_pro == v:
+        avisar(request, "bien", f"PRO ya tiene {v} de {a['nombre']}, lo mismo que DEV: no hay nada que pasar.")
+        return _volver()
+    if d["tipo"] not in ("workflow", "servidor"):
+        avisar(request, "mal", f"{a['nombre']} no dice cómo se despliega.")
+        return _volver()
+    if not _reservar(request, a, "pro", v):
+        return _volver()
     try:
         if d["tipo"] == "workflow":
             github.pasar_a_pro(d, v)
@@ -479,6 +519,7 @@ async def pasar_a_pro(request: Request):
             raise github.GitHubError(f"{a['nombre']} no dice cómo se despliega.")
         avisar(request, "bien", f"Pedido: {v} de {a['nombre']} a PRO. Tarda unos minutos; la tarjeta lo dirá.")
     except github.GitHubError as e:
+        en_curso.soltar(a["ruta"])
         avisar(request, "mal", str(e))
     return _volver()
 
@@ -505,6 +546,7 @@ def estado(request: Request):
     """Para que la pagina sepa cuando el servidor ha terminado lo pedido."""
     if _solo_it(request) is not None:
         return JSONResponse({}, status_code=403)
-    return JSONResponse({"en_cola": _peticiones_en_cola(), "ultimo": (_resultados(1) or [{}])[0].get("id", "")},
+    return JSONResponse({"en_cola": _peticiones_en_cola(), "ultimo": (_resultados(1) or [{}])[0].get("id", ""),
+                         "en_curso": sorted(en_curso.leer())},
                         headers={"Cache-Control": "no-store"})
 

@@ -22,7 +22,7 @@ for d in ("estado/resultados", "peticiones", "datos"):
 
 from fastapi.testclient import TestClient  # noqa: E402
 
-from panel import app as panel, github, guardado, importar  # noqa: E402
+from panel import app as panel, en_curso, github, guardado, importar  # noqa: E402
 
 CATALOGO = {
     "version": "abc1234", "latido": "2999-01-01T00:00:00Z", "dominios": {"dev": "dev.ejemplo.com", "pro": "pro.ejemplo.com"},
@@ -126,6 +126,7 @@ class Ajustes(unittest.TestCase):
         poner_catalogo()
         for p in Path(TMP, "peticiones").glob("*"):
             p.unlink()
+        Path(TMP, "datos", "en_curso.json").unlink(missing_ok=True)
 
     def csrf(self, c):
         import re
@@ -170,7 +171,9 @@ class Ajustes(unittest.TestCase):
 
     def test_pasar_a_pro_workflow(self):
         c = cliente("henry", ["/IT"])
-        with mock.patch.object(github, "pasar_a_pro") as pap:
+        def ver(ent, *_a):
+            return {"ok": True, "version": "sha-2222222" if ent == "dev" else "v1.0.0", "detalle": ""}
+        with mock.patch.object(github, "pasar_a_pro") as pap, mock.patch.object(panel, "version_en", ver):
             c.post("/ajustes/pasar-a-pro/", data={"ruta": "tareas", "csrf": self.csrf(c)})
         d, v = pap.call_args[0]
         self.assertEqual((d["workflow"], v), ("despliegue.yml", "sha-2222222"))
@@ -186,6 +189,51 @@ class Ajustes(unittest.TestCase):
         with mock.patch.object(github, "lanzar") as lanzar:
             c.post("/ajustes/poner/", data={"ruta": "tareas", "entorno": "dev", "version": "anterior", "csrf": self.csrf(c)})
         self.assertEqual(lanzar.call_args[0][1:], ("dev", "anterior"))
+
+    def test_pasar_a_pro_no_hace_nada_si_pro_ya_es_igual(self):
+        c = cliente("henry", ["/IT"])
+        with mock.patch.object(github, "pasar_a_pro") as pap:
+            r = c.post("/ajustes/pasar-a-pro/", data={"ruta": "tareas", "csrf": self.csrf(c)})
+        pap.assert_not_called()
+        self.assertIn("PRO ya tiene sha-2222222", r.text)
+        self.assertIn("PRO ya tiene lo mismo que DEV", r.text)
+
+    def test_despliegue_en_curso_se_ve_en_otra_pestana_y_no_deja_otro(self):
+        a, b = cliente("henry", ["/IT"]), cliente("luis", ["/IT"])
+        with mock.patch.object(github, "lanzar") as lanzar:
+            a.post("/ajustes/poner/", data={"ruta": "tareas", "entorno": "pro", "version": "v9.9.9", "csrf": self.csrf(a)})
+            # otra persona (otra sesion) abre Ajustes: lo ve, y no puede pedir otro encima
+            r = b.get("/ajustes/")
+            self.assertIn("Poniendo <b>v9.9.9</b> en <b>PRO</b>", r.text)
+            self.assertIn("pedido por henry", r.text)
+            r = b.post("/ajustes/poner/", data={"ruta": "tareas", "entorno": "dev", "version": "anterior", "csrf": self.csrf(b)})
+            self.assertIn("ya se está desplegando", r.text)
+        self.assertEqual(lanzar.call_count, 1)
+
+    def test_en_curso_acaba_cuando_github_termina(self):
+        c = cliente("henry", ["/IT"])
+        with mock.patch.object(github, "lanzar"):
+            c.post("/ajustes/poner/", data={"ruta": "tareas", "entorno": "pro", "version": "anterior", "csrf": self.csrf(c)})
+        desde = en_curso.leer()["tareas"]["desde"]
+        guardado.guardar_token("github_pat_" + "b" * 40)
+        mal = [{"id": 1, "titulo": "x", "estado": "completed", "resultado": "failure", "url": "https://gh/run/1",
+                "evento": "workflow_dispatch", "creada": desde, "fecha": ""}]
+        with mock.patch.object(github, "ejecuciones", return_value=mal), mock.patch.object(github, "pendientes", return_value=[]):
+            r = c.get("/ajustes/")
+            self.assertIn("Falló poner", r.text)
+            self.assertIn("https://gh/run/1", r.text)
+        bien = [{**mal[0], "id": 2, "resultado": "success"}]
+        with mock.patch.object(github, "lanzar"):
+            c.post("/ajustes/poner/", data={"ruta": "tareas", "entorno": "pro", "version": "anterior", "csrf": self.csrf(c)})
+        with mock.patch.object(github, "ejecuciones", return_value=bien), mock.patch.object(github, "pendientes", return_value=[]):
+            self.assertNotIn("Poniendo", c.get("/ajustes/").text)
+        self.assertEqual(en_curso.leer(), {})
+
+    def test_si_github_falla_al_pedir_no_se_queda_en_curso(self):
+        c = cliente("henry", ["/IT"])
+        with mock.patch.object(github, "lanzar", side_effect=github.GitHubError("no")):
+            c.post("/ajustes/poner/", data={"ruta": "tareas", "entorno": "pro", "version": "v1.0.0", "csrf": self.csrf(c)})
+        self.assertEqual(en_curso.leer(), {})
 
     def test_anadir_lee_el_manifiesto(self):
         c = cliente("henry", ["/IT"])
