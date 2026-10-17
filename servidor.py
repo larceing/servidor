@@ -525,7 +525,12 @@ def catalogo() -> dict:
         for ruta, a in legado_ent.items():
             if ruta in vistas:
                 continue
-            grupo = a["grupo"] or (f"{ent.upper()}/{sueltos[ruta]}" if ruta in sueltos else "")
+            # siempre bajo el entorno: un "# grupo: Lin-AI" suelto no puede valer
+            # como el grupo raiz /Lin-AI (otro sistema) ni el de PRO en DEV
+            g = a["grupo"] or sueltos.get(ruta, "")
+            for pre in ("DEV/", "PRO/"):
+                g = g.removeprefix(pre)
+            grupo = f"{ent.upper()}/{g}" if g else ""
             lista.append({"ruta": ruta, "nombre": a["nombre"], "salud": a["salud"], "grupo": grupo})
         entradas[ent] = sorted(lista, key=lambda x: x["nombre"].lower())
     apps = []

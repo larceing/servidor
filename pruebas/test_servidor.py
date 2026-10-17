@@ -157,6 +157,13 @@ class Catalogo(Base):
         self.assertEqual({a["ruta"] for a in c["entradas"]["pro"]}, {"inventario"})
         self.assertEqual({s["ruta"] for s in c["sin_alta"]}, {"tareas", "linai"})
 
+    def test_grupo_de_antes_nunca_es_el_grupo_raiz(self):
+        # "# grupo: Lin-AI" sin entorno (o con el de otro) no debe dar paso a /Lin-AI
+        for linea in ("# grupo: Lin-AI", "# grupo: /Lin-AI", "# grupo: PRO/Lin-AI"):
+            (self.legado / "dev" / "apps" / "linai.conf").write_text(LINAI_CONF.replace("# grupo: DEV/Lin-AI", linea))
+            dev = {a["ruta"]: a for a in S.catalogo()["entradas"]["dev"]}
+            self.assertEqual(dev["linai"]["grupo"], "DEV/Lin-AI", linea)
+
     def test_propia_sin_ruta_en_ese_entorno_no_sale(self):
         self.alta(ruta="linai", nombre="Lin-AI", grupo="Lin-AI", entrada="propia",
                   despliegue={"tipo": "workflow", "workflow": "linai.yml"})
