@@ -109,7 +109,7 @@ Su contenedor por defecto es `<principal>-<ruta>-<entorno>`; si en un entorno ya
 otro nombre, se dice al añadirla (*Si ya existe con otro nombre*). Cuando PRO va a su
 dominio, `pro…/spsil/…` lleva allí, la portada de ese dominio tiene su propio cliente de
 Keycloak (`servidor-<principal>`, con el tema que se le ponga) y su logo, y se pueden
-redirigir rutas viejas (`stock>/paginas/`).
+redirigir rutas viejas (`stock>/paginas/`; a otro dominio sin camino, p. ej. `auth>https://users.midominio.com`, se lleva el camino entero).
 
 ### Pasar a PRO
 
@@ -130,7 +130,7 @@ servidor, por orden:
 2. **Entrada de PRO**: sirve ese dominio.
 3. **Nginx Proxy Manager**: el host con su certificado hacia la entrada de PRO. Si el
    dominio ya iba a otro sitio (p. ej. un portal de antes), lo apunta para poder volver,
-   y copia de allí el logo y `/marca/`.
+   y copia de allí el logo, `/marca/` y `/js/`.
 4. **Keycloak**: añade la dirección a los clientes de la app (y de sus subapps).
 
 **⟳ Sincronizar** repite todo eso y arregla lo que falte; cada 10 minutos el servidor

@@ -300,12 +300,24 @@ class Principal(Base):
         pro = {a["id"]: a for a in S.catalogo()["entradas"]["pro"]}
         self.assertEqual(pro["spsil.tareas"]["grupos"], ["PRO/SPSIL/Tareas"])   # tambien en su dominio
 
+    def test_contenedor_por_alias_de_npm(self):
+        def run(cmd, **k):
+            if cmd[:2] == ["docker", "ps"]:
+                return "keycloak\nspsil-plataforma-portal-1\n"
+            return {"keycloak": '{"proxy_default": {"Aliases": ["keycloak"]}}',
+                    "spsil-plataforma-portal-1": '{"proxy_default": {"Aliases": ["spsil-portal", "portal"]}}'}[cmd[-1]]
+        with mock.patch.object(S, "run", side_effect=run):
+            self.assertEqual(S.contenedor_de("spsil-portal"), "spsil-plataforma-portal-1")
+            self.assertEqual(S.contenedor_de("keycloak"), "keycloak")
+            self.assertEqual(S.contenedor_de("no-existe"), "")
+
     def test_pro_en_su_dominio(self):
         self.sub()
         self.sub("linai")
-        self.poner_dominio(redirigir={"stock": "/paginas/", "ajustes": "/x/"})
+        self.poner_dominio(redirigir={"stock": "/paginas/", "ajustes": "/x/", "auth": "https://users.ejemplo.com"})
         (self.dir / "estado" / "estaticos" / "spsil").mkdir(parents=True)
         (self.dir / "estado" / "estaticos" / "spsil" / "spsil-logo.webp").write_bytes(b"x")
+        (self.dir / "estado" / "estaticos" / "spsil" / "js").mkdir()
         S.guardar_registro(S.registro()["spsil.tareas"]["manifiesto"], "yo/tareas-spsil", contenedores={"pro": "spsil-tareas"})
         pro, dev = S.ficheros_entrada("pro"), S.ficheros_entrada("dev")
         d = pro["dominio-spsil.conf"]
@@ -317,8 +329,11 @@ class Principal(Base):
         self.assertIn("proxy_pass $panel/portada/;", d)
         self.assertIn("proxy_set_header X-Principal spsil;", d)
         self.assertIn("location = /spsil-logo.webp {", d)
+        self.assertIn("rewrite ^/js/(.*)$ /ajustes/estaticos/spsil/js/$1 break;", d)
+        self.assertNotIn("location /marca/", d)   # no la tenia
         self.assertIn("location /stock/ { return 301 /paginas/; }", d)
         self.assertNotIn("/x/", d)
+        self.assertIn("location /auth { return 301 https://users.ejemplo.com$request_uri; }", d)
         self.assertNotIn("apps/spsil.tareas.conf", pro)   # en PRO ya solo por su dominio
         self.assertIn("https://spsil.ejemplo.com/$1 permanent;", pro["apps/spsil.conf"])
         self.assertIn("location /spsil/tareas/ {", dev["apps/spsil.tareas.conf"])   # DEV sigue igual
