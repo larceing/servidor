@@ -107,6 +107,11 @@ Lo dice `despliegue.tipo` en su manifiesto:
 | Datos | un volumen `/datos` | lo que diga su compose (p. ej. su base en la MariaDB compartida) |
 | Comprobación y vuelta atrás | sí (si no responde, vuelve a la de antes) | lo que haga su script (los de Tareas, sí) |
 
+Aris (el Gestor de Tareas propio, en `/tareas/`) y Tareas SPSIL se despliegan a
+propósito por su workflow y `tareas.sh` / `spsil-tareas.sh`: usan la MariaDB
+compartida, hacen copia antes de desplegar, vuelven atrás solos y saben importar
+una instalación de antes. Son una excepción, **no el modelo para apps nuevas**.
+
 Hay un tercer valor, `ninguno`, para una app que va en el contenedor de otra (p. ej.
 Páginas, que sirve el contenedor de Lin-AI): sale en la portada pero no se despliega.
 

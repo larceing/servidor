@@ -105,7 +105,9 @@ lectura de paquetes (sirve para todas las apps de ese usuario). Si no, «Poner»
 
 ## 3. Receta B: la app se despliega con su workflow (tipo `workflow`)
 
-Es lo que hacen Tareas, Tareas SPSIL y Lin-AI. La plantilla más limpia es
+Es lo que hacen Aris, Tareas SPSIL y Lin-AI, a propósito (base de datos compartida,
+copias antes de desplegar, importar una instalación de antes). No es el modelo para
+apps nuevas: úsala solo si la app necesita lo mismo. La plantilla más limpia es
 **APP_TAREAS_SPSIL**; cópiala y cambia los nombres:
 
 | Fichero | Qué hace |
