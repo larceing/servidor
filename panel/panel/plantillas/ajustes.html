@@ -22,6 +22,8 @@
   .texto { font-size: 12px; color: var(--muted); line-height: 1.45; }
   .aviso { border: 1px solid var(--border); background: var(--panel); border-radius: 10px; padding: 11px 14px; margin-bottom: 14px; font-size: 13px; line-height: 1.5; }
   .aviso.mal { border-color: var(--rojo); } .aviso.bien { border-color: var(--verde); }
+  .aviso.curso { border-color: var(--acento); background: var(--azul-t); }
+  .b2[disabled] { opacity: .5; cursor: not-allowed; }
   .app { background: var(--panel); border: 1px solid var(--border); border-radius: 14px; box-shadow: var(--sombra); padding: 16px 18px; margin-bottom: 16px; }
   .app-cab { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; }
   .app-cab h2 { font-size: 16px; margin: 0; }
@@ -94,6 +96,18 @@
       </div>
     </div>
     {% if t.error %}<div class="aviso mal">{{ t.error }}</div>{% endif %}
+    {% set c = t.en_curso %}
+    {% if c and c.fallo %}
+    <div class="aviso mal">✗ Falló poner <b>{{ c.version }}</b> en <b>{{ nombres.get(c.entorno, c.entorno) }}</b> (pedido por {{ c.quien }}).
+      {% if c.url %}<a href="{{ c.url }}" target="_blank" rel="noopener">Ver en GitHub</a>.{% endif %} Sigue la versión de antes.</div>
+    {% elif c %}
+    <div class="aviso curso">⏳ Poniendo <b>{{ "la versión anterior" if c.version == "anterior" else c.version }}</b> en <b>{{ nombres.get(c.entorno, c.entorno) }}</b>
+      · pedido por {{ c.quien }} a las {{ c.desde[11:16] }} UTC{% if c.estado %} · GitHub: {{ estados.get(c.estado, c.estado) }}{% endif %}
+      {% if c.url %} · <a href="{{ c.url }}" target="_blank" rel="noopener">ver</a>{% endif %}. Hasta que acabe no se puede pedir otro.</div>
+    {% elif t.en_marcha_github %}
+    <div class="aviso curso">⏳ GitHub está desplegando: {{ t.en_marcha_github.titulo }} ({{ estados.get(t.en_marcha_github.estado, t.en_marcha_github.estado) }})
+      · <a href="{{ t.en_marcha_github.url }}" target="_blank" rel="noopener">ver</a>. Hasta que acabe no se puede pedir otro.</div>
+    {% endif %}
     {% for p in t.pendientes %}
     <div class="pendiente">
       <span>🔔 <b>{{ p.titulo }}</b> espera aprobación para <b>{{ nombres.get(p.entorno, p.entorno) }}</b>.</span>
@@ -116,9 +130,9 @@
         <form class="fila" method="post" action="/ajustes/poner/"><input type="hidden" name="csrf" value="{{ csrf }}">
           <input type="hidden" name="ruta" value="{{ t.ruta }}"><input type="hidden" name="entorno" value="{{ e.nombre }}">
           <input type="text" name="version" placeholder="versión (sha-1a2b3c4, v1.2.0)" required>
-          <button class="b2 pq" type="submit" onclick="return confirm('¿Poner esa versión de {{ t.nombre }} en {{ nombres[e.nombre] }}?')">Poner</button>
+          <button class="b2 pq" type="submit" {% if t.ocupada %}disabled{% endif %} onclick="return confirm('¿Poner esa versión de {{ t.nombre }} en {{ nombres[e.nombre] }}?')">Poner</button>
           {% if d.tipo == "servidor" or d.anterior %}
-          <button class="b2 pq" type="submit" name="version" value="anterior" formnovalidate title="Volver a la versión buena anterior" onclick="return confirm('¿Volver {{ t.nombre }} en {{ nombres[e.nombre] }} a la versión anterior?')">↩ Anterior</button>
+          <button class="b2 pq" type="submit" name="version" value="anterior" formnovalidate {% if t.ocupada %}disabled{% endif %} title="Volver a la versión buena anterior" onclick="return confirm('¿Volver {{ t.nombre }} en {{ nombres[e.nombre] }} a la versión anterior?')">↩ Anterior</button>
           {% endif %}
         </form>
         {% endif %}
@@ -128,9 +142,10 @@
     {% if t.alta and d.tipo in ("workflow", "servidor") %}
     <form class="pro" method="post" action="/ajustes/pasar-a-pro/"><input type="hidden" name="csrf" value="{{ csrf }}">
       <input type="hidden" name="ruta" value="{{ t.ruta }}">
-      <button class="b1" type="submit" {% if not t.version_dev %}disabled title="DEV no dice su versión"{% endif %}
+      {% set igual = t.version_dev and t.version_dev == t.version_pro %}
+      <button class="b1" type="submit" {% if not t.version_dev or igual or t.ocupada %}disabled{% endif %}
               onclick="return confirm('¿Poner en PRO la versión {{ t.version_dev }} de {{ t.nombre }}?')">Pasar a PRO</button>
-      <span class="texto">{% if t.version_dev %}Pone en PRO lo que tiene DEV ahora: <b>{{ t.version_dev }}</b>. Si GitHub pide aprobación, se aprueba sola.{% else %}DEV no dice qué versión tiene: usa «Poner» en PRO.{% endif %}</span>
+      <span class="texto">{% if t.ocupada %}Hay un despliegue en curso: espera a que acabe.{% elif igual %}✓ PRO ya tiene lo mismo que DEV: <b>{{ t.version_dev }}</b>. Nada que pasar.{% elif t.version_dev %}Pone en PRO lo que tiene DEV ahora: <b>{{ t.version_dev }}</b>. Si GitHub pide aprobación, se aprueba sola.{% else %}DEV no dice qué versión tiene: usa «Poner» en PRO.{% endif %}</span>
     </form>
     {% endif %}
     <details>
@@ -207,13 +222,19 @@
   <p class="texto" style="margin-top:24px">Servidor {{ cat.version or "?" }} · panel {{ version }}</p>
 {% endif %}
 </div>
-{% if en_cola %}
+{% if en_cola or algo_en_curso or tarjetas|selectattr("ocupada")|list %}
 <script>
-// cuando el servidor acaba lo pedido, se recarga para ensenar el resultado
+// mientras haya algo en marcha, se recarga sola para ensenar como va
+// (sin pisar lo que se este escribiendo)
+var antes = {{ (en_cola|length) }};
 setInterval(function () {
   fetch("/ajustes/estado.json", { cache: "no-store" }).then(function (r) { return r.json(); })
-    .then(function (d) { if (d.en_cola && d.en_cola.length === 0) location.reload(); }).catch(function () {});
+    .then(function (d) { if (d.en_cola && d.en_cola.length < antes) location.reload(); }).catch(function () {});
 }, 3000);
+setInterval(function () {
+  var a = document.activeElement;
+  if (!a || !/^(INPUT|TEXTAREA)$/.test(a.tagName)) location.reload();
+}, 20000);
 </script>
 {% endif %}
 </body>

@@ -69,7 +69,8 @@ def lanzar(d: dict, entorno: str, version: str) -> None:
 def ejecuciones(d: dict, limite: int = 5) -> list[dict]:
     datos = llamar("GET", f"/repos/{d['repo']}/actions/workflows/{d['workflow']}/runs?per_page={limite}") or {}
     return [{"id": r["id"], "titulo": r.get("display_title") or r.get("name", ""), "estado": r.get("status", ""),
-             "resultado": r.get("conclusion") or "", "url": r.get("html_url", ""),
+             "resultado": r.get("conclusion") or "", "url": r.get("html_url", ""), "evento": r.get("event", ""),
+             "creada": r.get("created_at") or "",
              "fecha": (r.get("created_at") or "").replace("T", " ")[:16]} for r in datos.get("workflow_runs", [])]
 
 
