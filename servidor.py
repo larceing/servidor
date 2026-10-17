@@ -826,9 +826,9 @@ def _cliente_id(realm: str, cliente: str) -> str:
     return filas[0].strip() if filas else ""
 
 
-def asegurar_cliente(cliente: str, nombre: str, urls: list[str]) -> str:
+def asegurar_cliente(cliente: str, nombre: str, urls: list[str], tema: str = "") -> str:
     """El cliente (confidencial, con el mapper de grupos con su camino entero)
-    y que admita volver a esas direcciones. Devuelve su secret."""
+    y que admita volver a esas direcciones. Con tema, el de su login. Devuelve su secret."""
     c = cfg()
     realm = _realm(c)
     cid = _cliente_id(realm, cliente) or ""
@@ -836,13 +836,19 @@ def asegurar_cliente(cliente: str, nombre: str, urls: list[str]) -> str:
         cuerpo = {
             "clientId": cliente, "name": nombre, "enabled": True, "publicClient": False,
             "standardFlowEnabled": True, "directAccessGrantsEnabled": False,
-            "redirectUris": [], "webOrigins": [], "attributes": {"login_theme": "keycloak"},
+            "redirectUris": [], "webOrigins": [], "attributes": {"login_theme": tema or "keycloak"},
             "protocolMappers": [{"name": "groups", "protocol": "openid-connect",
                                  "protocolMapper": "oidc-group-membership-mapper",
                                  "config": {"claim.name": "groups", "full.path": "true", "userinfo.token.claim": "true",
                                             "id.token.claim": "true", "access.token.claim": "true"}}]}
         cid = kc("create", "clients", "-r", realm, "-i", "-f", "-", entrada=json.dumps(cuerpo)).strip()
         log(f"Keycloak: cliente {cliente} creado")
+    elif tema:
+        cli = json.loads(kc("get", f"clients/{cid}", "-r", realm))
+        if (cli.get("attributes") or {}).get("login_theme") != tema:
+            cli.setdefault("attributes", {})["login_theme"] = tema
+            kc("update", f"clients/{cid}", "-r", realm, "-f", "-", entrada=json.dumps(cli))
+            log(f"Keycloak: {cliente} con el login {tema}")
     for u in urls:
         anadir_url_cliente(realm, cid, u)
     return kc("get", f"clients/{cid}/client-secret", "-r", realm, "--fields", "value",
