@@ -1,0 +1,69 @@
+<!doctype html>
+{# La portada de un entorno (https://dev.../ o https://pro.../). Aqui solo llegan las apps que la persona puede ver. #}
+<html lang="es">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>{{ titulo }} · {{ entorno|upper }}</title>
+<style>
+:root{--fondo:#f4f6fb;--tarjeta:#fff;--texto:#111827;--suave:#6b7280;--borde:#e5e7eb;--acento:#2563eb;--ok:#16a34a;--mal:#9ca3af;--sombra:0 1px 2px rgba(16,24,40,.05),0 8px 24px rgba(16,24,40,.06)}
+@media (prefers-color-scheme:dark){:root{--fondo:#0b1020;--tarjeta:#141a2e;--texto:#e5e7eb;--suave:#9ca3af;--borde:#232b45;--acento:#60a5fa;--ok:#4ade80;--mal:#6b7280;--sombra:none}}
+*{box-sizing:border-box}
+body{margin:0;min-height:100vh;font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;background:var(--fondo);color:var(--texto);display:flex;flex-direction:column}
+main{width:100%;max-width:880px;margin:0 auto;padding:56px 20px 32px;flex:1}
+.cab{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+h1{font-size:26px;margin:0;letter-spacing:-.01em}
+.sub{color:var(--suave);margin:8px 0 32px}
+.chip{font-size:12px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;padding:4px 10px;border-radius:999px;background:var(--chip-fondo);color:var(--chip-texto)}
+.dev{--chip-fondo:#fef3c7;--chip-texto:#92400e}
+.pro{--chip-fondo:#dcfce7;--chip-texto:#166534}
+.apps{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:16px}
+.app{display:flex;gap:14px;align-items:center;padding:18px;background:var(--tarjeta);border:1px solid var(--borde);border-radius:14px;box-shadow:var(--sombra);text-decoration:none;color:inherit;transition:transform .12s,border-color .12s}
+.app:hover{transform:translateY(-2px);border-color:var(--acento)}
+.ico{flex:none;width:44px;height:44px;border-radius:12px;display:grid;place-items:center;font-weight:700;font-size:18px;color:#fff;background:linear-gradient(135deg,#2563eb,#7c3aed)}
+.nom{font-weight:600}
+.est{font-size:13px;color:var(--suave);margin-top:4px;display:flex;align-items:center;gap:6px}
+.punto{width:8px;height:8px;border-radius:50%;background:var(--mal)}
+.on .punto{background:var(--ok)}
+.vacio{color:var(--suave)}
+footer{text-align:center;color:var(--suave);font-size:13px;padding:24px}
+.sesion{margin-left:auto;display:flex;align-items:center;gap:10px;font-size:14px;color:var(--suave)}
+.sesion a.salir{color:var(--acento);text-decoration:none;font-weight:600}
+.ajustes{display:inline-flex;align-items:center;gap:6px;padding:8px 14px;border-radius:10px;border:1px solid var(--borde);background:var(--tarjeta);color:inherit;text-decoration:none;font-weight:600;font-size:14px}
+.ajustes:hover{border-color:var(--acento)}
+</style>
+</head>
+<body>
+<main>
+  <div class="cab">
+    <h1>{{ titulo }}</h1><span class="chip {{ entorno }}">{{ entorno|upper }}</span>
+    <div class="sesion">
+      <span>{{ usuario }}</span>
+      <a class="salir" href="/ajustes/salir" title="Cerrar sesión para entrar con otro usuario">Salir</a>
+      {% if it %}<a class="ajustes" href="{{ ajustes }}">⚙ Ajustes</a>{% endif %}
+    </div>
+  </div>
+  <p class="sub">{{ sub }}</p>
+  <div class="apps">
+    {% for a in apps %}
+    <a class="app" href="/{{ a.ruta }}/" data-salud="/{{ a.ruta }}/{{ a.salud }}"><span class="ico">{{ a.nombre[:1] }}</span><span><div class="nom">{{ a.nombre }}</div><div class="est"><span class="punto"></span><span class="txt">Comprobando...</span></div></span></a>
+    {% else %}
+    <p class="vacio">No tienes acceso a ninguna aplicación de este entorno. Si crees que deberías, pídeselo a IT.</p>
+    {% endfor %}
+  </div>
+</main>
+<footer>Entorno {{ entorno|upper }}</footer>
+<script>
+var VERSIONES = {{ it|tojson }};   // la version de cada app, solo para IT
+document.querySelectorAll(".app[data-salud]").forEach(function (a) {
+  var txt = a.querySelector(".txt");
+  fetch(a.dataset.salud, { cache: "no-store", headers: { Accept: "application/json" } })
+    .then(function (r) {
+      if (!r.ok) throw r;
+      a.classList.add("on"); txt.textContent = "En marcha";
+      if (VERSIONES) return r.json().then(function (d) { if (d && d.version) txt.textContent = "En marcha · " + d.version; }, function () {});
+    })
+    .catch(function () { txt.textContent = "Sin desplegar o arrancando"; });
+});
+</script>
+</body>
+</html>
