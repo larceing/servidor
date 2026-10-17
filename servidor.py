@@ -56,7 +56,8 @@ IMAGEN_NGINX = "nginx:1.27-alpine"
 PANEL = "servidor-panel"          # contenedor y nombre en la red del proxy
 PANEL_UID = 10001                  # usuario del contenedor del panel
 CADA_ACTUALIZAR = 60               # segundos entre busquedas de version nueva
-CADA_DOMINIOS = 600                # cada cuanto se mira si los dominios propios siguen bien
+CADA_DOMINIOS = 600
+CARPETAS_FIJAS = ("marca", "js")   # carpetas del portal de antes que sirve la portada en su dominio                # cada cuanto se mira si los dominios propios siguen bien
 ESPERA_SALUD = 300
 
 RUTA = re.compile(r"^[a-z][a-z0-9-]{1,30}$")
@@ -515,10 +516,14 @@ def conf_dominio_principal(reg: dict, datos: dict) -> str:
               "  location = /ajustes { return 308 /ajustes/; }\n", panel("/ajustes/", "")]
     for f in estaticos(r):
         partes.append(panel(f"= /{f}", f"/ajustes/estaticos/{r}/{f}"))
-    if (DIR / "estado" / "estaticos" / r / "marca").is_dir():
-        partes.append(panel("/marca/", "", f"    rewrite ^/marca/(.*)$ /ajustes/estaticos/{r}/marca/$1 break;\n"))
+    for carpeta in CARPETAS_FIJAS:
+        if (DIR / "estado" / "estaticos" / r / carpeta).is_dir():
+            partes.append(panel(f"/{carpeta}/", "", f"    rewrite ^/{carpeta}/(.*)$ /ajustes/estaticos/{r}/{carpeta}/$1 break;\n"))
     for ruta, dest in sorted(datos.get("redirigir", {}).items()):
-        partes.append(f"  location = /{ruta} {{ return 301 {dest}; }}\n  location /{ruta}/ {{ return 301 {dest}; }}\n")
+        if re.fullmatch(r"https://[a-z0-9.-]+", dest):   # a otro dominio: con el camino entero (/auth/... -> users.../auth/...)
+            partes.append(f"  location /{ruta} {{ return 301 {dest}$request_uri; }}\n")
+        else:
+            partes.append(f"  location = /{ruta} {{ return 301 {dest}; }}\n  location /{ruta}/ {{ return 301 {dest}; }}\n")
     for sub in sorted(subapps(reg, r).values(), key=lambda d: d["manifiesto"]["ruta"]):
         sm = sub["manifiesto"]
         partes.append("".join("  " + l + "\n" if l else "\n"
@@ -1425,27 +1430,48 @@ def leer_estado_dominio(ida: str) -> dict:
         return {}
 
 
+def contenedor_de(alias: str) -> str:
+    """El contenedor que hay detrás de un nombre de NPM: el suyo, o uno con ese alias de red
+    (p. ej. spsil-portal es el alias de spsil-plataforma-portal-1)."""
+    try:
+        nombres = run(["docker", "ps", "--format", "{{.Names}}"], timeout=30).split()
+        if alias in nombres:
+            return alias
+        for n in nombres:
+            redes = json.loads(run(["docker", "inspect", "-f", "{{json .NetworkSettings.Networks}}", n], timeout=30) or "{}")
+            if any(alias in (r.get("Aliases") or []) for r in redes.values()):
+                return n
+    except (Error, ValueError, subprocess.TimeoutExpired):
+        pass
+    return ""
+
+
 def copiar_estaticos(ruta: str, contenedor: str) -> None:
-    """El logo y /marca/ del portal que servia antes el dominio (solo si aun no hay nada)."""
+    """El logo, /marca/ y /js/ del portal que servia antes el dominio (solo si aun no hay nada)."""
     import tempfile
     destino = DIR / "estado" / "estaticos" / ruta
     if destino.is_dir() and any(destino.iterdir()):
         return
     with tempfile.TemporaryDirectory() as tmp:
-        if subprocess.run(["docker", "cp", f"{contenedor}:/usr/share/nginx/html/.", tmp], capture_output=True).returncode != 0:
+        nombre = contenedor_de(contenedor)
+        if not nombre or subprocess.run(["docker", "cp", f"{nombre}:/usr/share/nginx/html/.", tmp],
+                                        capture_output=True).returncode != 0:
+            log(f"no pude copiar el logo de {contenedor}: súbelo a mano a estado/estaticos/{ruta}/")
             return
         origen = Path(tmp)
         destino.mkdir(parents=True, exist_ok=True)
         for f in origen.iterdir():
             if f.is_file() and not f.is_symlink() and ESTATICO.match(f.name):
                 shutil.copyfile(f, destino / f.name)
-        marca = origen / "marca"
-        if marca.is_dir() and not marca.is_symlink():
-            for f in marca.rglob("*"):
-                rel = f.relative_to(marca)
+        for carpeta in CARPETAS_FIJAS:
+            base = origen / carpeta
+            if not base.is_dir() or base.is_symlink():
+                continue
+            for f in base.rglob("*"):
+                rel = f.relative_to(base)
                 if f.is_file() and not f.is_symlink() and all(re.fullmatch(r"[A-Za-z0-9._-]+", x) for x in rel.parts):
-                    (destino / "marca" / rel).parent.mkdir(parents=True, exist_ok=True)
-                    shutil.copyfile(f, destino / "marca" / rel)
+                    (destino / carpeta / rel).parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copyfile(f, destino / carpeta / rel)
     log(f"logo y ficheros fijos de {contenedor} copiados para la portada de /{ruta}/")
 
 
