@@ -390,6 +390,29 @@ class Principal(Base):
         self.assertEqual(S.registro()["spsil"]["dominio"], "")
         self.assertIn("LISTO", r["salida"])
 
+    def test_sincronizar_con_keycloak_pone_el_tema_de_su_login(self):
+        self.sub()
+        self.poner_dominio(tema="spsil")
+        S.poner_env(self.dir / "servidor.env", {"KEYCLOAK_ISSUER": "https://kc.ejemplo.com/realms/r"})
+        cli = {"clientId": "servidor-spsil", "attributes": {"login_theme": "keycloak"}}
+        puestos = []
+
+        def kc(*args, entrada=None):
+            if args[:2] == ("get", "clients"):
+                return "id1"
+            if args[:2] == ("get", "clients/id1"):
+                return json.dumps(cli)
+            if args[0] == "update":
+                puestos.append(json.loads(entrada))
+            return "secreto"
+        with mock.patch.object(S, "npm_apuntar", return_value={}), mock.patch.object(S, "aplicar_entrada"), \
+                mock.patch.object(S, "kc_entrar"), mock.patch.object(S, "kc", side_effect=kc), \
+                mock.patch.object(S, "_reiniciar_panel"), mock.patch.object(S, "comprobar_dominio", return_value={"partes": {}}), \
+                mock.patch("socket.gethostbyname", return_value="1.2.3.4"):
+            S.sincronizar_dominio("spsil")
+        self.assertEqual(puestos[0]["attributes"]["login_theme"], "spsil")
+        self.assertIn("https://spsil.ejemplo.com/ajustes/*", puestos[-1]["redirectUris"])
+
     def test_cloudflare_crea_el_registro_y_no_pisa_otro(self):
         llamadas = []
 
