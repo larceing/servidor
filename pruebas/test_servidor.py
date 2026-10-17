@@ -413,6 +413,11 @@ class Principal(Base):
         self.assertEqual(puestos[0]["attributes"]["login_theme"], "spsil")
         self.assertIn("https://spsil.ejemplo.com/ajustes/*", puestos[-1]["redirectUris"])
 
+    def test_catalogo_lleva_tema_logo_y_rutas_viejas(self):
+        self.poner_dominio(tema="spsil", logo="spsil-logo.webp", redirigir={"stock": "/paginas/"})
+        a = next(x for x in S.catalogo()["apps"] if x["id"] == "spsil")
+        self.assertEqual((a["tema"], a["logo"], a["redirigir"]), ("spsil", "spsil-logo.webp", {"stock": "/paginas/"}))
+
     def test_cloudflare_crea_el_registro_y_no_pisa_otro(self):
         llamadas = []
 
