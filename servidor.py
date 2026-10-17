@@ -733,6 +733,7 @@ def catalogo() -> dict:
         apps.append({**m, "id": ida, "dentro": m.get("dentro", ""), "principal": bool(m.get("principal")),
                      "repo": datos.get("repo", ""), "origen": datos.get("origen", ""), "dominio": datos.get("dominio", ""),
                      "grupos_extra": datos["grupos_extra"], "contenedores": {e: contenedor_en(datos, e) for e in ENTORNOS},
+                     "tema": datos.get("tema", ""), "logo": datos.get("logo", ""), "redirigir": datos.get("redirigir", {}),
                      "donde": {e: {"host": en_su_dominio(reg, datos, e) or dominio(c, e), "camino": camino(reg, datos, e) + "/"}
                                for e in ENTORNOS},
                      "estado_dominio": leer_estado_dominio(ida) if datos.get("dominio") else {}, **extra})
