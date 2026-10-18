@@ -146,8 +146,10 @@ Pasos, por orden:
    Ejemplo real: `servidor/spsil-en-dev.md` en los ficheros del proyecto.
 2. **En GitHub** (Settings → Secrets and variables → Actions), los tres secretos:
    `DEPLOY_HOST` (IP del servidor), `DEPLOY_KNOWN_HOSTS` (`ssh-keyscan -t ed25519
-   <IP>`), `DEPLOY_SSH_KEY` (la clave privada que creó `preparar`). Sin ellos el
-   workflow avisa y no despliega. Opcional: un entorno `pro` con revisores; Ajustes
+   <IP>`), `DEPLOY_SSH_KEY` (la clave privada que creó `preparar`; una por app, p. ej.
+   `github-despliegue-<app>`, que en el servidor solo puede ejecutar `<script> ci`). Sin
+   ellos el workflow avisa y no despliega. El SSH del servidor solo acepta claves, nunca
+   contraseñas, y la clave no se pega en ningún chat. Opcional: un entorno `pro` con revisores; Ajustes
    aprueba solo lo que lanza con «Pasar a PRO».
 3. **En Ajustes**: igual que la receta A (token, **Añadir una aplicación**, **Poner**
    en DEV, **Pasar a PRO**). Aquí «Poner» lanza el workflow con `entorno` y `version`.

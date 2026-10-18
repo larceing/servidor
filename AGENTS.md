@@ -19,6 +19,9 @@ Lo que no se hace:
   dilo y apúntalo en `docs/` como lo que todavía no hace el servidor.
 - Pasar algo a PRO que no funcione en DEV, o pulsar «Poner» en un entorno cuya app
   apunta a un contenedor de antes con datos reales.
+- Usar lo que ya no existe: el Ajustes y la portada que tenía Tareas, el workflow
+  `apps.yml` y las órdenes `app-nueva`, `app-desplegar`, `portada` y `dominio` de
+  `tareas.sh`. Todo eso lo hace ahora este servidor.
 - Pedir que se peguen secretos (tokens, claves, client secrets) en un chat: se
   guardan en Ajustes, en los secretos de GitHub o en el servidor.
 
