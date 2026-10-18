@@ -72,26 +72,27 @@ Lo que todavía no hace el servidor:
 ## 4. Cómo lo hicimos con SPSIL
 
 SPSIL ya existía antes del servidor: un portal propio en `spsil.<dominio>`, su Tareas
-con datos reales (contenedor `spsil-tareas`) y su Lin-AI. El camino fue, sin tocar
-nunca lo que estaba en uso:
+con datos reales (contenedor `spsil-tareas`), su Lin-AI y una app de stock. El camino
+fue, sin tocar nunca lo que estaba en uso hasta tener la vuelta atrás:
 
-1. **DEV primero** (`servidor/spsil-en-dev.md` en los ficheros del proyecto): crear la
-   app principal `spsil`; preparar Tareas SPSIL en el servidor (`spsil-tareas.sh
-   preparar` y `keycloak-crear dev`) con sus tres secretos en GitHub; añadir
-   `larceing/APP_TAREAS_SPSIL` dentro de SPSIL y **Poner** en DEV; lo mismo con
-   `larceing/spsil-proyecto` (Lin-AI y Páginas, tras `linai.sh dentro dev spsil SPSIL`).
-2. **PRO apuntando a lo que ya había** (`servidor/spsil-en-pro.md`): añadir cada app
-   con «Si ya existe con otro nombre» → su contenedor de PRO de siempre
-   (`spsil-tareas`, `spsil-linai`), para no crear otro vacío. Copiar los datos de
-   Lin-AI viejo al nuevo con su script (`linai.sh importar` y `publicar`).
+1. **DEV primero**: crear la app principal `spsil`; preparar Tareas SPSIL en el
+   servidor (`spsil-tareas.sh preparar` y `keycloak-crear dev`) con sus tres secretos en
+   GitHub; añadir `larceing/APP_TAREAS_SPSIL` dentro de SPSIL y **Poner** en DEV; lo
+   mismo con `larceing/spsil-proyecto` (Lin-AI y Páginas, tras `linai.sh dentro dev
+   spsil SPSIL`).
+2. **PRO apuntando a lo que ya había**: añadir cada app con «Si ya existe con otro
+   nombre» → su contenedor de PRO de siempre (`spsil-tareas`, `spsil-linai`), para no
+   crear otro vacío. Copiar los datos del Lin-AI viejo al nuevo con su script
+   (`linai.sh importar` y `publicar`).
 3. **Su dominio**: tema `spsil`, su logo y las rutas viejas (`stock>/paginas/`,
-   `auth>https://users.<dominio>`), y **Poner en su dominio**. El portal viejo queda
-   parado, no borrado, para poder volver con «Quitar su dominio».
-4. **Después, con el sí del responsable**: pasar los usuarios a `/PRO/SPSIL/…`, quitar las
-   apps sueltas que ya no hacen falta y parar el portal viejo (`docker compose rm -s
-   portal`, nunca `down`, porque ahí está Keycloak).
+   `auth>https://users.<dominio>`), y **Poner en su dominio**. El portal viejo se
+   para, no se borra, para poder volver con «Quitar su dominio».
+4. **La limpieza**, con el sí del responsable: los usuarios pasaron a `/PRO/SPSIL/…`, se
+   borraron los grupos sueltos de la raíz de Keycloak y se quitó la app de stock
+   antigua. Para parar un portal viejo: `docker compose rm -s portal`, nunca `down`
+   (en la carpeta de ese portal está también Keycloak).
 
-**En curso:** los pasos 2 a 4 en PRO y el cambio de grupos de SPSIL. El estado real
-lo dice Ajustes.
+Hoy SPSIL está entero en el servidor: DEV en `dev.<dominio>/spsil/` y PRO en
+`spsil.<dominio>`.
 
 Para un producto **nuevo, sin nada de antes**, solo hacen falta los apartados 1 a 3.

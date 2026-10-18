@@ -111,6 +111,8 @@ Aris (el Gestor de Tareas propio, en `/tareas/`) y Tareas SPSIL se despliegan a
 propósito por su workflow y `tareas.sh` / `spsil-tareas.sh`: usan la MariaDB
 compartida, hacen copia antes de desplegar, vuelven atrás solos y saben importar
 una instalación de antes. Son una excepción, **no el modelo para apps nuevas**.
+Cada una entra al servidor por SSH con su propia clave (p. ej. `github-despliegue-aris`),
+limitada a ejecutar `<script> ci`; el SSH del servidor solo acepta claves, no contraseñas.
 
 Hay un tercer valor, `ninguno`, para una app que va en el contenedor de otra (p. ej.
 Páginas, que sirve el contenedor de Lin-AI): sale en la portada pero no se despliega.
@@ -119,15 +121,27 @@ Páginas, que sirve el contenedor de Lin-AI): sale en la portada pero no se desp
 
 | App | Dónde | Repositorio | Despliegue |
 |---|---|---|---|
-| Tareas (gestor de tareas propio) | `/tareas/` | `larceing/APP_TAREAS_BASE`; **en curso:** pasa a `larceing/aris` (copia de la base con su propio `servidor.json`, que hoy dice `entrada: propia`) | `workflow` (`despliegue.yml` + `tareas.sh`) |
-| SPSIL (producto) | `/spsil/` | — (se crea en Ajustes: «Nueva app principal») | no se despliega |
+| Aris (gestor de tareas propio) | `/tareas/` | `larceing/aris` | `workflow` (`despliegue.yml` + `tareas.sh`) |
+| SPSIL (producto) | `/spsil/`; en PRO, en su dominio `spsil.<dominio>` | — (se crea en Ajustes: «Nueva app principal») | no se despliega |
 | Gestor de Tareas de SPSIL | `/spsil/tareas/` | `larceing/APP_TAREAS_SPSIL` | `workflow` (`despliegue.yml` + `spsil-tareas.sh`) |
 | Lin-AI | `/spsil/linai/` | `larceing/spsil-proyecto` | `workflow` (`linai.yml` + `lin-ai/despliegue/linai.sh`) |
 | Páginas | `/spsil/paginas/` | `larceing/spsil-proyecto` (mismo `servidor.json`) | `ninguno` (contenedor de Lin-AI) |
 
-**En curso** (puede haber cambiado; manda lo que diga Ajustes): el PRO de SPSIL en
-su propio dominio y el paso de sus usuarios a los grupos `/PRO/SPSIL/…`. El objetivo
-es el que describe la tabla de arriba.
+Las apps de SPSIL usan los grupos `/DEV/SPSIL/…` y `/PRO/SPSIL/…`; los grupos sueltos
+de antes en la raíz de Keycloak ya no existen. Todas las rutas, también `/tareas/`,
+las escribe el servidor.
+
+`larceing/APP_TAREAS_BASE` es solo el **producto base** del gestor de tareas: de ahí
+salen Aris y Tareas SPSIL (con `git merge`), pero no se despliega en este servidor.
+
+### Lo que ya no existe
+
+Antes, Tareas hacía de servidor: tenía su propio Ajustes y su portada, un workflow
+`apps.yml` para crear apps y las órdenes `app-nueva`, `app-desplegar`, `portada` y
+`dominio` de `tareas.sh`. Todo eso se quitó: lo hace este servidor. Si un documento
+viejo (p. ej. `docs/MANUAL_VERSIONES.md` o `docs/DESPLIEGUE.md` de una app, o notas
+sueltas) lo menciona, está desactualizado; manda esta guía. La app de stock antigua de
+SPSIL también se quitó (su ruta vieja `/stock` lleva a Páginas).
 
 ## Cómo se cambia este repositorio
 
