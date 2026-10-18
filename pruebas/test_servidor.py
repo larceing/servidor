@@ -441,3 +441,39 @@ class Principal(Base):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ComprobarDominio(unittest.TestCase):
+    """«Responde» mira el panel en el dominio de una app principal y la página
+    de versión de la app en el de una app suelta (ahí todo va a la app)."""
+
+    def _mirada(self, manifiesto):
+        pedidas = []
+
+        class Resp:
+            status = 200
+            def __enter__(self): return self
+            def __exit__(self, *a): return False
+
+        def abrir(req, timeout=0):
+            pedidas.append(req.full_url)
+            return Resp()
+
+        with tempfile.TemporaryDirectory() as d, \
+                mock.patch.object(S, "DIR", Path(d)), mock.patch.object(S, "cfg", return_value={}), \
+                mock.patch.object(S, "ip_servidor", return_value=""), \
+                mock.patch.object(S, "registro", return_value={"x": {"dominio": "x.ejemplo.com", "manifiesto": manifiesto}}), \
+                mock.patch.object(S.socket, "gethostbyname", return_value="1.2.3.4"), \
+                mock.patch.object(S, "npm_host", return_value={"forward_host": "entrada-pro", "certificate_id": 1}), \
+                mock.patch.object(S.urllib.request, "urlopen", abrir):
+            estado = S.comprobar_dominio("x")
+        return pedidas, estado
+
+    def test_app_suelta_mira_su_version(self):
+        pedidas, estado = self._mirada({"ruta": "soporte", "version": "version/"})
+        self.assertEqual(pedidas, ["https://x.ejemplo.com/version/"])
+        self.assertTrue(estado["ok"])
+
+    def test_app_principal_mira_el_panel(self):
+        pedidas, _ = self._mirada({"ruta": "spsil", "principal": True, "version": "version/"})
+        self.assertEqual(pedidas, ["https://x.ejemplo.com/ajustes/salud"])
