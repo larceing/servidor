@@ -30,7 +30,7 @@ from fastapi.responses import JSONResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
 
-from . import en_curso, github, guardado
+from . import claves, en_curso, github, guardado
 
 ENTORNOS = ("dev", "pro")
 NOMBRES = {"dev": "DEV", "pro": "PRO"}
@@ -333,12 +333,13 @@ def _resultados(limite: int = 10) -> list:
     return salida
 
 
-def pedir(request: Request, accion: str, datos: dict) -> str:
-    """Deja la peticion para el agente del servidor (escritura atomica)."""
+def pedir(request: Request | None, accion: str, datos: dict, quien: str = "") -> str:
+    """Deja la peticion para el agente del servidor (escritura atomica).
+    quien: la persona de la sesion, o "api:<clave>" si llega por la API."""
     d = _dir("PETICIONES_DIR", "/peticiones")
     pid = datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S%f") + "-" + secrets.token_hex(3)
     tmp = d / f".{pid}.tmp"
-    tmp.write_text(json.dumps({"accion": accion, "datos": datos, "quien": usuario(request),
+    tmp.write_text(json.dumps({"accion": accion, "datos": datos, "quien": quien or usuario(request),
                                "fecha": datetime.now(timezone.utc).isoformat()}), encoding="utf-8")
     os.replace(tmp, d / f"{pid}.json")
     return pid
@@ -433,6 +434,10 @@ def avisar(request: Request, tipo: str, texto: str) -> None:
 
 @app.get("/ajustes/")
 def ajustes(request: Request):
+    return pagina_ajustes(request)
+
+
+def pagina_ajustes(request: Request, clave_nueva: dict | None = None):
     no = _solo_it(request)
     if no is not None:
         return no
@@ -446,7 +451,9 @@ def ajustes(request: Request):
         "algo_en_curso": bool(en_curso.leer()),
         "agente_vivo": _agente_vivo(cat), "avisos": request.session.pop("avisos", []),
         "csrf": request.session.setdefault("csrf", secrets.token_urlsafe(24)), "nombres": NOMBRES,
-        "portada": "/", "version": env("VERSION", "local")})
+        "portada": "/", "version": env("VERSION", "local"),
+        "claves": claves.listar(), "api_registro": claves.registro(15), "clave_nueva": clave_nueva,
+        "api_base": f"{base_url(env('AJUSTES_EN', 'pro'))}{API}"})
     r.headers["Cache-Control"] = "no-store"
     return r
 
@@ -461,14 +468,76 @@ async def _form(request: Request):
     return form
 
 
-def _reservar(request: Request, a: dict, ent: str, version: str) -> bool:
-    """Que no se pidan dos despliegues de la misma app a la vez (en ninguna pestaña)."""
-    otro = en_curso.reservar(a["id"], ent, version, usuario(request))
+class NoSePuede(Exception):
+    """Un despliegue que no se pide; el texto es para quien lo pidio. codigo: el HTTP para la API."""
+    def __init__(self, texto: str, codigo: int = 400):
+        super().__init__(texto)
+        self.codigo = codigo
+
+
+def desplegar(a: dict, ent: str, version: str, quien: str) -> str:
+    """Pide una version (o "anterior") de una app en un entorno. Lo usan el
+    boton «Poner» y la API. Devuelve el aviso; si no se puede, NoSePuede."""
+    if ent not in ENTORNOS or not VERSION_RE.match(version):
+        raise NoSePuede("Datos no válidos.")
+    d = a["despliegue"]
+    if d["tipo"] == "workflow" and version == "anterior" and not d.get("anterior"):
+        raise NoSePuede(f"El workflow de {a['nombre']} no sabe volver a la anterior: escribe la versión.")
+    if d["tipo"] not in ("workflow", "servidor"):
+        raise NoSePuede(f"{a['nombre']} no dice cómo se despliega.")
+    _reservar(a, ent, version, quien)
+    try:
+        if d["tipo"] == "workflow":
+            github.lanzar(d, ent, version)
+        else:
+            pedir(None, "desplegar", {"id": a["id"], "entorno": ent, "version": version}, quien=quien)
+    except github.GitHubError as e:
+        en_curso.soltar(a["id"])
+        raise NoSePuede(str(e), 502) from e
+    que = "la versión anterior" if version == "anterior" else version
+    return f"Pedido: {que} de {a['nombre']} en {NOMBRES[ent]}. Tarda unos minutos."
+
+
+def version_para_pro(a: dict) -> tuple:
+    """(lo que tiene DEV, lo que tiene PRO) de una app, para «Pasar a PRO»."""
+    d = a["despliegue"]
+    if d["tipo"] == "servidor":
+        vs = a.get("versiones") or {}
+        return vs.get("dev", ""), vs.get("pro", "")
+    return tuple(version_en(e, _donde(a, e)[0], a.get("version") or "version/", _donde(a, e)[1])["version"]
+                 for e in ("dev", "pro"))
+
+
+def pasar(a: dict, quien: str) -> str:
+    """Lo que tiene DEV pasa a PRO (y si GitHub pide aprobacion, se aprueba sola)."""
+    if a.get("principal"):
+        raise NoSePuede("Esa app no está dada de alta.", 404)
+    d = a["despliegue"]
+    v, en_pro = version_para_pro(a)
+    if not VERSION_RE.match(v or "") or v == "anterior":
+        raise NoSePuede(f"No sé qué versión tiene {a['nombre']} en DEV: escríbela en «Poner» de PRO.", 409)
+    if en_pro == v:
+        return f"PRO ya tiene {v} de {a['nombre']}, lo mismo que DEV: no hay nada que pasar."
+    if d["tipo"] not in ("workflow", "servidor"):
+        raise NoSePuede(f"{a['nombre']} no dice cómo se despliega.")
+    _reservar(a, "pro", v, quien)
+    try:
+        if d["tipo"] == "workflow":
+            github.pasar_a_pro(d, v)
+        else:
+            pedir(None, "desplegar", {"id": a["id"], "entorno": "pro", "version": v}, quien=quien)
+    except github.GitHubError as e:
+        en_curso.soltar(a["id"])
+        raise NoSePuede(str(e), 502) from e
+    return f"Pedido: {v} de {a['nombre']} a PRO. Tarda unos minutos; la tarjeta lo dirá."
+
+
+def _reservar(a: dict, ent: str, version: str, quien: str) -> None:
+    """Que no se pidan dos despliegues de la misma app a la vez (en ninguna pestaña, ni por la API)."""
+    otro = en_curso.reservar(a["id"], ent, version, quien)
     if otro:
-        avisar(request, "mal", f"{a['nombre']} ya se está desplegando ({otro['version']} en {NOMBRES.get(otro['entorno'], otro['entorno'])}, "
-                               f"pedido por {otro['quien']}). Espera a que acabe.")
-        return False
-    return True
+        raise NoSePuede(f"{a['nombre']} ya se está desplegando ({otro['version']} en {NOMBRES.get(otro['entorno'], otro['entorno'])}, "
+                        f"pedido por {otro['quien']}). Espera a que acabe.", 409)
 
 
 def _volver() -> RedirectResponse:
@@ -661,30 +730,12 @@ async def poner(request: Request):
     if form is None:
         return Response(status_code=403)
     a = _app(_id(form))
-    ent, version = str(form.get("entorno", "")), str(form.get("version", "")).strip()
-    if not a or ent not in ENTORNOS or not VERSION_RE.match(version):
+    if not a:
         avisar(request, "mal", "Datos no válidos.")
         return _volver()
-    d = a["despliegue"]
-    if d["tipo"] == "workflow" and version == "anterior" and not d.get("anterior"):
-        avisar(request, "mal", f"El workflow de {a['nombre']} no sabe volver a la anterior: escribe la versión.")
-        return _volver()
-    if d["tipo"] not in ("workflow", "servidor"):
-        avisar(request, "mal", f"{a['nombre']} no dice cómo se despliega.")
-        return _volver()
-    if not _reservar(request, a, ent, version):
-        return _volver()
     try:
-        if d["tipo"] == "workflow":
-            github.lanzar(d, ent, version)
-        elif d["tipo"] == "servidor":
-            pedir(request, "desplegar", {"id": a["id"], "entorno": ent, "version": version})
-        else:
-            raise github.GitHubError(f"{a['nombre']} no dice cómo se despliega.")
-        que = "la versión anterior" if version == "anterior" else version
-        avisar(request, "bien", f"Pedido: {que} de {a['nombre']} en {NOMBRES[ent]}. Tarda unos minutos.")
-    except github.GitHubError as e:
-        en_curso.soltar(a["id"])
+        avisar(request, "bien", desplegar(a, str(form.get("entorno", "")), str(form.get("version", "")).strip(), usuario(request)))
+    except NoSePuede as e:
         avisar(request, "mal", str(e))
     return _volver()
 
@@ -696,39 +747,12 @@ async def pasar_a_pro(request: Request):
     if form is None:
         return Response(status_code=403)
     a = _app(_id(form))
-    if not a or a.get("principal"):
+    if not a:
         avisar(request, "mal", "Esa app no está dada de alta.")
         return _volver()
-    d = a["despliegue"]
-    if d["tipo"] == "servidor":
-        v = (a.get("versiones") or {}).get("dev", "")
-    else:
-        v = version_en("dev", _donde(a, "dev")[0], a.get("version") or "version/", _donde(a, "dev")[1])["version"]
-    if not VERSION_RE.match(v or "") or v == "anterior":
-        avisar(request, "mal", f"No sé qué versión tiene {a['nombre']} en DEV: escríbela en «Poner» de PRO.")
-        return _volver()
-    if d["tipo"] == "servidor":
-        en_pro = (a.get("versiones") or {}).get("pro", "")
-    else:
-        en_pro = version_en("pro", _donde(a, "pro")[0], a.get("version") or "version/", _donde(a, "pro")[1])["version"]
-    if en_pro == v:
-        avisar(request, "bien", f"PRO ya tiene {v} de {a['nombre']}, lo mismo que DEV: no hay nada que pasar.")
-        return _volver()
-    if d["tipo"] not in ("workflow", "servidor"):
-        avisar(request, "mal", f"{a['nombre']} no dice cómo se despliega.")
-        return _volver()
-    if not _reservar(request, a, "pro", v):
-        return _volver()
     try:
-        if d["tipo"] == "workflow":
-            github.pasar_a_pro(d, v)
-        elif d["tipo"] == "servidor":
-            pedir(request, "desplegar", {"id": a["id"], "entorno": "pro", "version": v})
-        else:
-            raise github.GitHubError(f"{a['nombre']} no dice cómo se despliega.")
-        avisar(request, "bien", f"Pedido: {v} de {a['nombre']} a PRO. Tarda unos minutos; la tarjeta lo dirá.")
-    except github.GitHubError as e:
-        en_curso.soltar(a["id"])
+        avisar(request, "bien", pasar(a, usuario(request)))
+    except NoSePuede as e:
         avisar(request, "mal", str(e))
     return _volver()
 
@@ -759,3 +783,288 @@ def estado(request: Request):
                          "en_curso": sorted(en_curso.leer())},
                         headers={"Cache-Control": "no-store"})
 
+
+
+# ── API (/ajustes/api/v1/): lo mismo que los botones, con una clave ──────────
+# Para programas (p. ej. Claude): ver las apps y su estado, y desplegar en los
+# entornos que permita la clave (por defecto solo DEV). Va con
+# "Authorization: Bearer srv_...", nunca con la sesion del navegador (asi no
+# hay CSRF que valga). Las claves las crea y las quita IT en Ajustes; todo lo
+# que se pide queda apuntado (claves.apuntar) y se ve en Ajustes.
+
+API = "/ajustes/api/v1"
+
+
+def _ip(request: Request) -> str:
+    return (request.headers.get("x-forwarded-for", "").split(",")[0].strip()
+            or (request.client.host if request.client else ""))
+
+
+def _clave(request: Request) -> dict | None:
+    cab = request.headers.get("authorization", "")
+    return claves.comprobar(cab[7:].strip()) if cab[:7].lower() == "bearer " else None
+
+
+def _sin_clave(request: Request) -> JSONResponse:
+    claves.apuntar(None, "rechazada", {"camino": request.url.path[:120]}, False, "clave que falta, no vale o ha caducado",
+                   _ip(request))
+    return JSONResponse({"ok": False, "error": "Falta la clave de la API, no vale o ha caducado."}, status_code=401,
+                        headers={"WWW-Authenticate": "Bearer", "Cache-Control": "no-store"})
+
+
+def _json(datos: dict, codigo: int = 200) -> JSONResponse:
+    return JSONResponse(datos, status_code=codigo, headers={"Cache-Control": "no-store"})
+
+
+def _ve(c: dict, ida: str) -> bool:
+    return not c.get("apps") or ida in c["apps"]
+
+
+def _app_api(a: dict, c: dict, con_github: bool = False) -> dict:
+    """Una app como la ve la API: sus versiones en cada entorno y lo que hay en marcha."""
+    d = a["despliegue"]
+    entornos = {}
+    for e in ENTORNOS:
+        camino, host = _donde(a, e)
+        v = version_en(e, camino, a.get("version") or "version/", host)
+        if d["tipo"] == "servidor":
+            v = {**v, "version": v["version"] or (a.get("versiones") or {}).get(e, "")}
+        entornos[e] = {**v, "url": f"https://{host or dominio(e)}{camino}" if (host or dominio(e)) else "",
+                       "puede_desplegar": claves.puede(c, a["id"], e) and d["tipo"] in ("workflow", "servidor")}
+    salida = {"id": a["id"], "nombre": a.get("nombre") or a["ruta"], "ruta": a["ruta"], "dentro": a.get("dentro") or "",
+              "repo": a.get("repo") or d.get("repo") or "", "despliegue": d["tipo"],
+              "sabe_volver": d["tipo"] == "servidor" or bool(d.get("anterior")),
+              "entornos": entornos, "en_curso": None, "ejecuciones": [], "error": ""}
+    ejecuciones = []
+    if con_github and d["tipo"] == "workflow" and guardado.hay_token():
+        try:
+            ejecuciones = github.ejecuciones(d)
+        except github.GitHubError as e:
+            salida["error"] = str(e)
+    salida["ejecuciones"] = ejecuciones
+    ent = (en_curso.leer().get(a["id"]) or {}).get("entorno", "")
+    if con_github or d["tipo"] != "workflow":   # sin las ejecuciones de GitHub no se sabe si acabo
+        salida["en_curso"] = en_curso.resolver(a["id"], d["tipo"], entornos.get(ent, {}).get("version", ""), ejecuciones,
+                                               _resultados(30))
+    else:
+        salida["en_curso"] = en_curso.leer().get(a["id"])
+    return salida
+
+
+def _apps_de(c: dict) -> list:
+    return [a for a in ({**a, "id": a.get("id") or a["ruta"], "dentro": a.get("dentro") or ""}
+                        for a in catalogo().get("apps", []) if not a.get("principal")) if _ve(c, a["id"])]
+
+
+@app.get(f"{API}/yo")
+def api_yo(request: Request):
+    """Lo que puede hacer esta clave (para comprobar que funciona)."""
+    c = _clave(request)
+    if not c:
+        return _sin_clave(request)
+    return _json({"ok": True, "clave": claves.publica(c)})
+
+
+@app.get(f"{API}/apps")
+def api_apps(request: Request):
+    """Las apps que ve la clave, con la version de cada entorno."""
+    c = _clave(request)
+    if not c:
+        return _sin_clave(request)
+    apps = _apps_de(c)
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        lista = list(pool.map(lambda a: _app_api(a, c), apps))
+    return _json({"ok": True, "apps": lista})
+
+
+@app.get(f"{API}/apps/{{ida}}")
+def api_app(request: Request, ida: str):
+    """Una app, con sus ultimas ejecuciones de GitHub (si va por workflow) y lo que hay en marcha."""
+    c = _clave(request)
+    if not c:
+        return _sin_clave(request)
+    a = _app(ida) if ID_RE.match(ida) else None
+    if not a or a.get("principal") or not _ve(c, a["id"]):
+        return _json({"ok": False, "error": "Esa app no existe o esta clave no la ve."}, 404)
+    datos = _app_api(a, c, con_github=True)
+    datos["resultados"] = [r for r in _resultados(30) if (r.get("datos") or {}).get("id") == a["id"]][:5]
+    return _json({"ok": True, "app": datos})
+
+
+async def _cuerpo(request: Request) -> dict:
+    try:
+        d = await request.json()
+        return d if isinstance(d, dict) else {}
+    except ValueError:
+        return {}
+
+
+@app.post(f"{API}/apps/{{ida}}/desplegar")
+async def api_desplegar(request: Request, ida: str):
+    """{"entorno": "dev", "version": "sha-1234567" | "anterior"} -> 202 si se ha pedido."""
+    c = _clave(request)
+    if not c:
+        return _sin_clave(request)
+    cuerpo = await _cuerpo(request)
+    ent, version = str(cuerpo.get("entorno", "")).strip(), str(cuerpo.get("version", "")).strip()
+    datos = {"id": ida[:70], "entorno": ent[:10], "version": version[:70]}
+    a = _app(ida) if ID_RE.match(ida) else None
+    if not a or a.get("principal") or not _ve(c, a["id"]):
+        claves.apuntar(c, "desplegar", datos, False, "app que no existe o que no ve", _ip(request))
+        return _json({"ok": False, "error": "Esa app no existe o esta clave no la ve."}, 404)
+    if ent in ENTORNOS and not claves.puede(c, a["id"], ent):
+        claves.apuntar(c, "desplegar", datos, False, f"la clave no puede desplegar en {ent}", _ip(request))
+        return _json({"ok": False, "error": f"Esta clave no puede desplegar en {NOMBRES[ent]}. "
+                                            "Eso se hace desde Ajustes (o con una clave que lo permita)."}, 403)
+    try:
+        texto = desplegar(a, ent, version, f"api:{c['nombre']}")
+    except NoSePuede as e:
+        claves.apuntar(c, "desplegar", datos, False, str(e), _ip(request))
+        return _json({"ok": False, "error": str(e)}, e.codigo)
+    claves.apuntar(c, "desplegar", datos, True, texto, _ip(request))
+    return _json({"ok": True, "mensaje": texto, "seguir": f"{API}/apps/{a['id']}"}, 202)
+
+
+@app.post(f"{API}/apps/{{ida}}/pasar-a-pro")
+async def api_pasar_a_pro(request: Request, ida: str):
+    """Lo que tiene DEV, a PRO. Solo con una clave que pueda desplegar en PRO."""
+    c = _clave(request)
+    if not c:
+        return _sin_clave(request)
+    datos = {"id": ida[:70]}
+    a = _app(ida) if ID_RE.match(ida) else None
+    if not a or a.get("principal") or not _ve(c, a["id"]):
+        claves.apuntar(c, "pasar_a_pro", datos, False, "app que no existe o que no ve", _ip(request))
+        return _json({"ok": False, "error": "Esa app no existe o esta clave no la ve."}, 404)
+    if not claves.puede(c, a["id"], "pro"):
+        claves.apuntar(c, "pasar_a_pro", datos, False, "la clave no puede desplegar en pro", _ip(request))
+        return _json({"ok": False, "error": "Esta clave no puede desplegar en PRO: «Pasar a PRO» se pulsa en Ajustes."}, 403)
+    try:
+        texto = pasar(a, f"api:{c['nombre']}")
+    except NoSePuede as e:
+        claves.apuntar(c, "pasar_a_pro", datos, False, str(e), _ip(request))
+        return _json({"ok": False, "error": str(e)}, e.codigo)
+    claves.apuntar(c, "pasar_a_pro", datos, True, texto, _ip(request))
+    return _json({"ok": True, "mensaje": texto, "seguir": f"{API}/apps/{a['id']}"}, 202)
+
+
+@app.get(f"{API}/estado")
+def api_estado(request: Request):
+    """Si el agente del servidor esta vivo, lo que espera en cola y lo ultimo que ha hecho."""
+    c = _clave(request)
+    if not c:
+        return _sin_clave(request)
+    cat = catalogo()
+    return _json({"ok": True, "servidor": cat.get("version", ""), "panel": env("VERSION", "local"),
+                  "agente_vivo": _agente_vivo(cat), "en_cola": len(_peticiones_en_cola()),
+                  "en_curso": {k: v for k, v in en_curso.leer().items() if _ve(c, k)},
+                  "resultados": [{k: r.get(k) for k in ("id", "accion", "ok", "quien", "fin", "datos")}
+                                 for r in _resultados(10) if _ve(c, (r.get("datos") or {}).get("id", ""))]})
+
+
+def instrucciones(c: dict, base: str, apps: list) -> str:
+    """El traspaso: lo que necesita saber quien (persona o IA) vaya a desplegar
+    con esta clave, con las apps y versiones de ahora mismo. Sin la clave."""
+    ents = " y ".join(NOMBRES[e] for e in c.get("entornos") or [])
+    filas = "\n".join(
+        f"| `{a['id']}` | {a['nombre']} | {a['despliegue']} | `{a['entornos']['dev']['version'] or '?'}` | "
+        f"`{a['entornos']['pro']['version'] or '?'}` | {', '.join(NOMBRES[e] for e in ENTORNOS if a['entornos'][e]['puede_desplegar']) or '—'} |"
+        for a in apps) or "| — | (esta clave no ve ninguna app) | | | | |"
+    solo_dev = "pro" not in (c.get("entornos") or [])
+    return f"""# Traspaso: desplegar en el servidor con la API
+
+Clave **{c['nombre']}** · puede desplegar en **{ents}**{'' if not c.get('apps') else ' · solo: ' + ', '.join(c['apps'])}
+· caduca: {(c.get('caduca') or 'no caduca').replace('T', ' ')[:16]}. Generado el {claves.ahora().replace('T', ' ')[:16]} UTC.
+
+La clave **no va en este texto ni en ningún chat**: está en la variable de entorno
+`SERVIDOR_TOKEN` (en un entorno de Claude Code, como secreto del entorno).
+
+## Apps
+
+| id | Nombre | Despliegue | DEV | PRO | Puedes desplegar en |
+|---|---|---|---|---|---|
+{filas}
+
+## Cómo se usa
+
+```bash
+export SERVIDOR_API="{base}{API}"
+H="Authorization: Bearer $SERVIDOR_TOKEN"
+
+curl -fsS -H "$H" "$SERVIDOR_API/yo"                 # qué puede hacer la clave
+curl -fsS -H "$H" "$SERVIDOR_API/apps"               # apps y versión en DEV y PRO
+curl -fsS -H "$H" "$SERVIDOR_API/apps/<id>"          # una app: lo que hay en marcha y lo último de GitHub
+curl -fsS -H "$H" "$SERVIDOR_API/estado"             # el agente del servidor y lo último que ha hecho
+
+# poner una versión en DEV (la etiqueta de la imagen, p. ej. sha-1234567, o "anterior" para volver atrás)
+curl -sS -H "$H" -H 'Content-Type: application/json' \\
+     -d '{{"entorno": "dev", "version": "sha-1234567"}}' "$SERVIDOR_API/apps/<id>/desplegar"
+```
+
+Respuestas: `202` pedido (sigue `GET /apps/<id>` hasta que `en_curso` sea `null`
+y `entornos.dev.version` sea la pedida; si sale `en_curso.fallo`, ha fallado),
+`401` clave que falta o no vale, `403` la clave no puede en ese entorno,
+`404` app que no existe o que la clave no ve, `409` ya hay un despliegue de esa app
+en marcha (espera), `502` GitHub no lo ha aceptado.
+
+## Reglas
+
+- DEV antes que PRO. {'**Esta clave no puede tocar PRO**: «Pasar a PRO» lo pulsa una persona en Ajustes.' if solo_dev else 'PRO solo con una versión que ya funciona en DEV (`POST /apps/<id>/pasar-a-pro`), y solo cuando lo diga el responsable.'}
+- Un despliegue por app a la vez; espera a que acabe antes de pedir otro.
+- Si algo falla, vuelve atrás con `"version": "anterior"` (si la app lo sabe: `sabe_volver`) y dilo.
+- Todo lo que se pide con la clave queda apuntado en Ajustes, con su nombre.
+"""
+
+
+@app.get(f"{API}/traspaso")
+def api_traspaso(request: Request):
+    """Las instrucciones (Markdown) para quien vaya a desplegar con esta clave."""
+    c = _clave(request)
+    if not c:
+        return _sin_clave(request)
+    apps = _apps_de(c)
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        lista = list(pool.map(lambda a: _app_api(a, c), apps))
+    return Response(instrucciones(c, base_url(env("AJUSTES_EN", "pro")) or base_de(request), lista),
+                    media_type="text/markdown; charset=utf-8", headers={"Cache-Control": "no-store"})
+
+
+# ── claves de la API en Ajustes (solo IT) ────────────────────────────────────
+
+@app.post("/ajustes/api/claves/")
+async def crear_clave(request: Request):
+    """Crea una clave y la ensena una sola vez (en esta respuesta, no en la sesion)."""
+    form = await _form(request)
+    if form is None:
+        return Response(status_code=403)
+    entornos = ["dev"] + (["pro"] if form.get("pro") == "si" else [])
+    apps = [x.strip() for x in str(form.get("apps", "")).split(",") if x.strip()]
+    if any(not ID_RE.match(x) for x in apps):
+        avisar(request, "mal", "Las apps van por su id (p. ej. sindri o spsil.tareas), separadas por comas.")
+        return _volver()
+    try:
+        dias = int(str(form.get("dias", "90")))
+    except ValueError:
+        dias = 90
+    try:
+        texto, c = claves.crear(str(form.get("nombre", "")), entornos, apps, usuario(request), max(0, min(dias, 3650)))
+    except ValueError as e:
+        avisar(request, "mal", str(e))
+        return _volver()
+    claves.apuntar(c, "clave_creada", {"entornos": c["entornos"], "apps": c["apps"], "por": usuario(request)}, True, "", _ip(request))
+    return pagina_ajustes(request, clave_nueva={"texto": texto, **c})
+
+
+@app.post("/ajustes/api/claves/quitar/")
+async def quitar_clave(request: Request):
+    form = await _form(request)
+    if form is None:
+        return Response(status_code=403)
+    cid = str(form.get("id", ""))
+    if re.fullmatch(r"[0-9a-f]{8}", cid) and claves.revocar(cid):
+        claves.apuntar({"id": cid, "nombre": str(form.get("nombre", ""))[:60]}, "clave_quitada", {"por": usuario(request)}, True,
+                       "", _ip(request))
+        avisar(request, "bien", "Clave quitada: deja de funcionar ya.")
+    else:
+        avisar(request, "mal", "Esa clave no existe.")
+    return _volver()

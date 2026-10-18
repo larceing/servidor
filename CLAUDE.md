@@ -15,7 +15,9 @@ user doc and the `servidor.json` manifest spec. UI text and docs are in Spanish.
 - `panel/`: FastAPI app (portada + Ajustes). OIDC Authorization Code against Keycloak,
   session cookie `servidor_sesion`, CSRF token per session, IT = `GRUPO_IT`. Reads only
   `/estado`, writes only `/peticiones` and its `/datos` volume (GitHub token, Fernet).
-  Deploys of workflow apps go straight to the GitHub API.
+  Deploys of workflow apps go straight to the GitHub API. `/ajustes/api/v1/` is the same
+  deploy/status with a Bearer key (`claves.py`: sha256 only, DEV-only by default, per-app
+  scope, expiry, audit log `/datos/api.log`); session cookies are never accepted there.
 - Never hardcode a domain, server, person or app name: everything comes from
   `servidor.env` or an app's manifest. No app code lives here.
 - Tests: `python -m unittest discover -s pruebas -v` and

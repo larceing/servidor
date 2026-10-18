@@ -289,6 +289,52 @@
     </form>
   </div>
 
+  <div class="seccion" id="api">Acceso por API (para Claude u otros programas)</div>
+  {% if clave_nueva %}
+  <div class="aviso bien"><b>Clave «{{ clave_nueva.nombre }}» creada.</b> Cópiala ahora: no se vuelve a enseñar.
+    Guárdala como secreto (p. ej. <code>SERVIDOR_TOKEN</code> en el entorno de Claude Code), nunca en un chat.
+    <pre style="user-select:all;white-space:pre-wrap;word-break:break-all">{{ clave_nueva.texto }}</pre>
+    Puede desplegar en {{ clave_nueva.entornos|map("upper")|join(" y ") }}{% if clave_nueva.apps %} · solo {{ clave_nueva.apps|join(", ") }}{% endif %}.
+    Las instrucciones para quien la use: <code>GET {{ api_base }}/traspaso</code>.</div>
+  {% endif %}
+  <div class="formularios">
+    <form class="form" method="post" action="/ajustes/api/claves/"><input type="hidden" name="csrf" value="{{ csrf }}">
+      <h3>Nueva clave</h3>
+      <p class="texto" style="margin:0 0 12px;">Para que un programa vea las apps y despliegue sin tu sesión: <code>{{ api_base }}/</code>.
+        Por defecto solo puede desplegar en <b>DEV</b>. Todo lo que pida queda apuntado aquí abajo.</p>
+      <div class="grupo-campo"><label>NOMBRE *</label><input type="text" name="nombre" placeholder="Claude" required maxlength="60"></div>
+      <div class="grupo-campo"><label>SOLO ESTAS APPS</label><input type="text" name="apps" placeholder="vacío = todas; p. ej. sindri, spsil.tareas"></div>
+      <div class="grupo-campo"><label>CADUCA</label><select name="dias">
+        <option value="30">en 30 días</option><option value="90" selected>en 90 días</option><option value="365">en un año</option><option value="0">nunca</option></select></div>
+      <div class="grupo-campo"><label><input type="checkbox" name="pro" value="si"> También PRO (desplegar y «Pasar a PRO» sin pasar por aquí)</label></div>
+      <button class="b1" type="submit">Crear clave</button>
+    </form>
+    <div class="form">
+      <h3>Claves</h3>
+      {% for k in claves %}
+      <div class="fila" style="justify-content:space-between">
+        <span><b>{{ k.nombre }}</b> · {{ k.entornos|map("upper")|join(" + ") }}{% if k.apps %} · {{ k.apps|join(", ") }}{% endif %}<br>
+          <span class="texto">de {{ k.quien }} · {{ (k.creada or '')|replace('T', ' ')|truncate(16, True, '') }}
+          · {% if k.caducada %}<b>caducada</b>{% elif k.caduca %}caduca {{ k.caduca[:10] }}{% else %}no caduca{% endif %}
+          · {% if k.usada %}usada {{ k.usada|replace('T', ' ')|truncate(16, True, '') }}{% else %}sin usar{% endif %}</span></span>
+        <form method="post" action="/ajustes/api/claves/quitar/"><input type="hidden" name="csrf" value="{{ csrf }}">
+          <input type="hidden" name="id" value="{{ k.id }}"><input type="hidden" name="nombre" value="{{ k.nombre }}">
+          <button class="b2" type="submit">Quitar</button></form>
+      </div>
+      {% else %}<p class="texto">Ninguna todavía.</p>{% endfor %}
+    </div>
+  </div>
+  {% if api_registro %}
+  <div class="tabla">
+    {% for r in api_registro %}
+    <div><span class="estado {{ 'ok' if r.ok else 'fallo' }}">{{ 'bien' if r.ok else 'no' }}</span>
+      <span class="crece">{{ r.accion }}{% if r.datos.id %} · {{ r.datos.id }}{% endif %}{% if r.datos.entorno %} en {{ r.datos.entorno|upper }}{% endif %}{% if r.datos.version %} · {{ r.datos.version }}{% endif %}
+        · {{ r.clave or 'sin clave' }}{% if r.detalle and not r.ok %} · {{ r.detalle }}{% endif %}</span>
+      <span class="texto">{{ (r.fecha or '')|replace('T', ' ')|truncate(16, True, '') }}</span></div>
+    {% endfor %}
+  </div>
+  {% endif %}
+
   <div class="seccion">Lo último que ha hecho el servidor</div>
   <div class="tabla">
     {% for p in en_cola %}<div><span class="estado cola">en cola</span><span class="crece">{{ p }}</span></div>{% endfor %}

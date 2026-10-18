@@ -22,7 +22,7 @@ for d in ("estado/resultados", "peticiones", "datos"):
 
 from fastapi.testclient import TestClient  # noqa: E402
 
-from panel import app as panel, en_curso, github, guardado, importar  # noqa: E402
+from panel import app as panel, claves, en_curso, github, guardado, importar  # noqa: E402
 
 CATALOGO = {
     "version": "abc1234", "latido": "2999-01-01T00:00:00Z", "dominios": {"dev": "dev.ejemplo.com", "pro": "pro.ejemplo.com"},
@@ -394,3 +394,147 @@ class Principal(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+@mock.patch.object(panel, "version_en", sin_versiones)
+class Api(unittest.TestCase):
+    """La API con clave: ver las apps y desplegar sin sesion, por defecto solo en DEV."""
+
+    def setUp(self):
+        poner_catalogo()
+        for p in Path(TMP, "peticiones").glob("*"):
+            p.unlink()
+        for f in ("en_curso.json", "api.json", "api.log"):
+            Path(TMP, "datos", f).unlink(missing_ok=True)
+
+    def clave(self, **kw):
+        return claves.crear(kw.get("nombre", "Claude"), kw.get("entornos", ["dev"]), kw.get("apps", []), "henry",
+                            kw.get("dias", 90))[0]
+
+    def api(self, clave=None):
+        c = cliente(entorno="pro")
+        if clave:
+            c.headers["Authorization"] = f"Bearer {clave}"
+        return c
+
+    def test_sin_clave_o_clave_mala_no_entra(self):
+        self.assertEqual(self.api().get("/ajustes/api/v1/apps").status_code, 401)
+        k = self.clave()
+        self.assertEqual(self.api(k[:-2] + "xx").get("/ajustes/api/v1/apps").status_code, 401)
+        self.assertEqual(self.api("srv_00000000_" + "a" * 43).get("/ajustes/api/v1/yo").status_code, 401)
+        self.assertTrue(any(r["accion"] == "rechazada" for r in claves.registro()))
+
+    def test_la_sesion_de_it_no_vale_como_clave(self):
+        c = cliente("henry", ["/IT"])
+        r = c.post("/ajustes/api/v1/apps/inventario/desplegar", json={"entorno": "dev", "version": "sha-3333333"})
+        self.assertEqual(r.status_code, 401)
+        self.assertEqual(list(Path(TMP, "peticiones").glob("*.json")), [])
+
+    def test_caducada_no_vale(self):
+        k = self.clave()
+        datos = json.loads(Path(TMP, "datos", "api.json").read_text())
+        datos["claves"][0]["caduca"] = "2001-01-01T00:00:00Z"
+        Path(TMP, "datos", "api.json").write_text(json.dumps(datos))
+        self.assertEqual(self.api(k).get("/ajustes/api/v1/yo").status_code, 401)
+
+    def test_solo_se_guarda_el_hash(self):
+        k = self.clave()
+        self.assertNotIn(k.split("_", 2)[2], Path(TMP, "datos", "api.json").read_text())
+
+    def test_yo_y_apps(self):
+        k = self.clave()
+        r = self.api(k).get("/ajustes/api/v1/yo").json()
+        self.assertEqual((r["clave"]["nombre"], r["clave"]["entornos"]), ("Claude", ["dev"]))
+        apps = {a["id"]: a for a in self.api(k).get("/ajustes/api/v1/apps").json()["apps"]}
+        self.assertEqual(set(apps), {"tareas", "inventario"})
+        self.assertTrue(apps["inventario"]["entornos"]["dev"]["puede_desplegar"])
+        self.assertFalse(apps["inventario"]["entornos"]["pro"]["puede_desplegar"])
+
+    def test_desplegar_en_dev_deja_la_peticion_y_lo_apunta(self):
+        k = self.clave()
+        r = self.api(k).post("/ajustes/api/v1/apps/inventario/desplegar", json={"entorno": "dev", "version": "sha-3333333"})
+        self.assertEqual(r.status_code, 202, r.text)
+        [p] = Path(TMP, "peticiones").glob("*.json")
+        pet = json.loads(p.read_text())
+        self.assertEqual((pet["accion"], pet["datos"], pet["quien"]),
+                         ("desplegar", {"id": "inventario", "entorno": "dev", "version": "sha-3333333"}, "api:Claude"))
+        [ultimo] = [x for x in claves.registro() if x["accion"] == "desplegar"]
+        self.assertTrue(ultimo["ok"])
+        # mientras, nadie pide otro encima (ni la API ni el boton)
+        r = self.api(k).post("/ajustes/api/v1/apps/inventario/desplegar", json={"entorno": "dev", "version": "anterior"})
+        self.assertEqual(r.status_code, 409)
+        self.assertIn("pedido por api:Claude", cliente("luis", ["/IT"]).get("/ajustes/").text)
+
+    def test_workflow_lanza_github(self):
+        k = self.clave()
+        with mock.patch.object(github, "lanzar") as lanzar:
+            r = self.api(k).post("/ajustes/api/v1/apps/tareas/desplegar", json={"entorno": "dev", "version": "anterior"})
+        self.assertEqual(r.status_code, 202)
+        self.assertEqual(lanzar.call_args[0][1:], ("dev", "anterior"))
+
+    def test_pro_no_con_una_clave_de_dev(self):
+        k = self.clave()
+        with mock.patch.object(github, "lanzar") as lanzar, mock.patch.object(github, "pasar_a_pro") as pap:
+            r1 = self.api(k).post("/ajustes/api/v1/apps/tareas/desplegar", json={"entorno": "pro", "version": "v1"})
+            r2 = self.api(k).post("/ajustes/api/v1/apps/tareas/pasar-a-pro")
+        self.assertEqual((r1.status_code, r2.status_code), (403, 403))
+        lanzar.assert_not_called()
+        pap.assert_not_called()
+        self.assertEqual(en_curso.leer(), {})
+        self.assertFalse(any(x["ok"] for x in claves.registro() if x["accion"] in ("desplegar", "pasar_a_pro")))
+
+    def test_pro_con_una_clave_que_lo_permite(self):
+        k = self.clave(entornos=["dev", "pro"])
+        r = self.api(k).post("/ajustes/api/v1/apps/inventario/pasar-a-pro")
+        self.assertEqual(r.status_code, 202, r.text)
+        [p] = Path(TMP, "peticiones").glob("*.json")
+        self.assertEqual(json.loads(p.read_text())["datos"], {"id": "inventario", "entorno": "pro", "version": "sha-1111111"})
+
+    def test_clave_de_una_app_no_ve_las_demas(self):
+        k = self.clave(apps=["inventario"])
+        self.assertEqual([a["id"] for a in self.api(k).get("/ajustes/api/v1/apps").json()["apps"]], ["inventario"])
+        self.assertEqual(self.api(k).get("/ajustes/api/v1/apps/tareas").status_code, 404)
+        r = self.api(k).post("/ajustes/api/v1/apps/tareas/desplegar", json={"entorno": "dev", "version": "v1"})
+        self.assertEqual(r.status_code, 404)
+
+    def test_datos_malos(self):
+        k = self.clave()
+        r = self.api(k).post("/ajustes/api/v1/apps/inventario/desplegar", json={"entorno": "dev", "version": "a b; rm"})
+        self.assertEqual(r.status_code, 400)
+        r = self.api(k).post("/ajustes/api/v1/apps/inventario/desplegar", content=b"no es json")
+        self.assertEqual(r.status_code, 400)
+        self.assertEqual(list(Path(TMP, "peticiones").glob("*.json")), [])
+
+    def test_traspaso_trae_apps_y_no_la_clave(self):
+        k = self.clave()
+        r = self.api(k).get("/ajustes/api/v1/traspaso")
+        self.assertEqual(r.status_code, 200)
+        self.assertIn("text/markdown", r.headers["content-type"])
+        self.assertIn("`inventario`", r.text)
+        self.assertIn("https://pro.ejemplo.com/ajustes/api/v1", r.text)
+        self.assertIn("no puede tocar PRO", r.text)
+        self.assertNotIn(k, r.text)
+
+    def test_estado(self):
+        k = self.clave()
+        r = self.api(k).get("/ajustes/api/v1/estado").json()
+        self.assertTrue(r["agente_vivo"])
+        self.assertEqual(r["en_cola"], 0)
+
+    def test_ajustes_crea_ensena_una_vez_y_quita(self):
+        import re
+        c = cliente("henry", ["/IT"])
+        csrf = re.search(r'name="csrf" value="([^"]+)"', c.get("/ajustes/").text).group(1)
+        r = c.post("/ajustes/api/claves/", data={"nombre": "Claude", "dias": "30", "csrf": csrf})
+        texto = re.search(r"(srv_[0-9a-f]{8}_[A-Za-z0-9_-]+)", r.text).group(1)
+        self.assertEqual(claves.comprobar(texto)["entornos"], ["dev"])
+        self.assertNotIn(texto, c.get("/ajustes/").text)
+        cid = texto.split("_")[1]
+        c.post("/ajustes/api/claves/quitar/", data={"id": cid, "csrf": csrf})
+        self.assertIsNone(claves.comprobar(texto))
+        self.assertEqual(self.api(texto).get("/ajustes/api/v1/yo").status_code, 401)
+
+    def test_crear_clave_pide_csrf_e_it(self):
+        r = cliente("ana", ["/PRO/Tareas/Admin"]).post("/ajustes/api/claves/", data={"nombre": "x", "csrf": "x"})
+        self.assertEqual(r.status_code, 403)
+        self.assertEqual(claves.listar(), [])
