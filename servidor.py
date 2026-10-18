@@ -1420,8 +1420,12 @@ def comprobar_dominio(ida: str) -> dict:
         partes["certificado"] = {"ok": bool(h) and bool(h.get("certificate_id")), "detalle": "" if h and h.get("certificate_id") else "sin certificado"}
     except Error as e:
         partes["proxy"] = {"ok": False, "detalle": str(e)[:120]}
+    # En el dominio de una app principal está el panel (/ajustes/salud); en el de
+    # una app suelta todo va a la app, así que se mira su página de versión.
+    m = datos.get("manifiesto") or {}
+    camino = "ajustes/salud" if m.get("principal") or not m.get("version") else m["version"]
     try:
-        with urllib.request.urlopen(urllib.request.Request(f"https://{dom}/ajustes/salud", method="GET"), timeout=10) as r:
+        with urllib.request.urlopen(urllib.request.Request(f"https://{dom}/{camino}", method="GET"), timeout=10) as r:
             partes["responde"] = {"ok": r.status == 200, "detalle": ""}
     except Exception as e:   # noqa: BLE001 - cualquier fallo es "no responde"
         partes["responde"] = {"ok": False, "detalle": str(e)[:120]}
