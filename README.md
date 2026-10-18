@@ -118,6 +118,13 @@ lanza su workflow con `entorno=pro` y esa versión, y si GitHub pide aprobación
 `pro` con revisores) la aprueba sola. Con `servidor`, la despliega el agente, con
 comprobación de salud y vuelta a la anterior si no responde.
 
+### Desplegar sin el navegador (API)
+
+Ajustes → **Acceso por API** crea una clave (por defecto solo DEV) para que un
+programa, p. ej. Claude, haga lo mismo que «Poner» y vea cómo va:
+`POST /ajustes/api/v1/apps/<id>/desplegar`. Todo queda apuntado en Ajustes. Ver
+[docs/API.md](docs/API.md).
+
 ### PRO en su dominio
 
 Ajustes → la app (o la principal) → *Más* → **Poner en su dominio** (solo PRO). El

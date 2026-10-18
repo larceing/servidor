@@ -9,6 +9,7 @@ servidor DEV/PRO, sea una persona o una IA. Se lee en este orden:
 | [NUEVA_APP.md](NUEVA_APP.md) | Paso a paso: una app nueva (suelta o dentro de un producto) |
 | [NUEVO_PRODUCTO.md](NUEVO_PRODUCTO.md) | Paso a paso: un producto nuevo (p. ej. un cliente) con su portada, sus apps y su dominio |
 | [../README.md](../README.md) | La referencia: el manifiesto `servidor.json` campo a campo, la configuración y las pruebas |
+| [API.md](API.md) | La API de Ajustes: desplegar con una clave (p. ej. Claude), por defecto solo en DEV |
 
 Si eres una IA, lee también [../AGENTS.md](../AGENTS.md).
 
@@ -49,6 +50,7 @@ panel ── peticiones/ ──► agente (servidor.py agente, systemd, root)
       ◄── estado/   ──     entradas, Keycloak, Nginx Proxy Manager, Cloudflare,
                            apps de tipo "servidor"
 panel ──► GitHub API:      lanzar el workflow de cada app, aprobar lo que espera para PRO
+programa (Claude) ──► /ajustes/api/v1/ con una clave ──► lo mismo que «Poner» (ver API.md)
 ```
 
 - **Entrada** (`entrada-dev`, `entrada-pro`): un nginx por entorno que reparte por

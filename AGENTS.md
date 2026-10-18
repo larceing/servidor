@@ -15,7 +15,10 @@ Lo que no se hace:
   enchufa solo con su `servidor.json`.
 - Escribir a mano un dominio, una IP, una persona o un nombre de app en el código.
 - Desplegar, cambiar dominios o tocar Keycloak con órdenes a mano en el servidor
-  cuando hay un botón en Ajustes. Si algo de verdad necesita una orden a mano,
+  cuando hay un botón en Ajustes. Para desplegar sin el navegador está la API de
+  Ajustes con una clave (variable `SERVIDOR_TOKEN`): empieza por
+  `GET /ajustes/api/v1/traspaso` ([docs/API.md](docs/API.md)). Una clave de solo
+  DEV no toca PRO; no intentes saltártelo. Si algo de verdad necesita una orden a mano,
   dilo y apúntalo en `docs/` como lo que todavía no hace el servidor.
 - Pasar algo a PRO que no funcione en DEV, o pulsar «Poner» en un entorno cuya app
   apunta a un contenedor de antes con datos reales.
