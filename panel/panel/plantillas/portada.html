@@ -20,6 +20,8 @@ h1{font-size:26px;margin:0;letter-spacing:-.01em}
 .app{display:flex;gap:14px;align-items:center;padding:18px;background:var(--tarjeta);border:1px solid var(--borde);border-radius:14px;box-shadow:var(--sombra);text-decoration:none;color:inherit;transition:transform .12s,border-color .12s}
 .app:hover{transform:translateY(-2px);border-color:var(--acento)}
 .ico{flex:none;width:44px;height:44px;border-radius:12px;display:grid;place-items:center;font-weight:700;font-size:18px;color:#fff;background:linear-gradient(135deg,#2563eb,#7c3aed)}
+.ico-img{background:#fff;border:1px solid var(--borde)}
+.ico-img img{width:34px;height:34px;object-fit:contain}
 .nom{font-weight:600}
 .est{font-size:13px;color:var(--suave);margin-top:4px;display:flex;align-items:center;gap:6px}
 .punto{width:8px;height:8px;border-radius:50%;background:var(--mal)}
@@ -47,7 +49,7 @@ footer{text-align:center;color:var(--suave);font-size:13px;padding:24px}
   <p class="sub">{{ sub }}</p>
   <div class="apps">
     {% for a in apps %}
-    <a class="app" href="{{ a.enlace }}"{% if a.salud_url and not a.salud_url.startswith('https://') %} data-salud="{{ a.salud_url }}"{% endif %}><span class="ico">{{ a.nombre[:1] }}</span><span><div class="nom">{{ a.nombre }}</div><div class="est"><span class="punto"></span><span class="txt">{% if a.principal %}Sus aplicaciones{% elif a.salud_url.startswith('https://') %}En su dominio{% else %}Comprobando...{% endif %}</span></div></span></a>
+    <a class="app" href="{{ a.enlace }}"{% if a.salud_url and not a.salud_url.startswith('https://') %} data-salud="{{ a.salud_url }}"{% endif %}><span class="ico{% if a.icono_url %} ico-img{% endif %}" data-letra="{{ a.nombre[:1] }}">{% if a.icono_url %}<img src="{{ a.icono_url }}" alt="">{% else %}{{ a.nombre[:1] }}{% endif %}</span><span><div class="nom">{{ a.nombre }}</div><div class="est"><span class="punto"></span><span class="txt">{% if a.principal %}Sus aplicaciones{% elif a.salud_url.startswith('https://') %}En su dominio{% else %}Comprobando...{% endif %}</span></div></span></a>
     {% else %}
     <p class="vacio">No tienes acceso a ninguna aplicación de este entorno. Si crees que deberías, pídeselo a IT.</p>
     {% endfor %}
@@ -55,6 +57,11 @@ footer{text-align:center;color:var(--suave);font-size:13px;padding:24px}
 </main>
 <footer>{% if propio %}{{ titulo }}{% else %}Entorno {{ entorno|upper }}{% endif %}</footer>
 <script>
+// si el icono de una app no carga, vuelve a su inicial
+document.querySelectorAll(".ico-img img").forEach(function (img) {
+  function letra() { var s = img.parentNode; s.classList.remove("ico-img"); s.textContent = s.dataset.letra; }
+  if (img.complete && !img.naturalWidth) letra(); else img.addEventListener("error", letra);
+});
 var VERSIONES = {{ it|tojson }};   // la version de cada app, solo para IT
 document.querySelectorAll(".app[data-salud]").forEach(function (a) {
   var txt = a.querySelector(".txt");

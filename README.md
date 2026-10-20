@@ -75,6 +75,7 @@ En la raíz de su repositorio. Ajustes → *Añadir una aplicación* → `usuari
 | `prefijo` | `quitar`: la app recibe `/...`; `conservar`: recibe `/ruta/...`. En los dos casos llega `X-Forwarded-Prefix: /ruta` | `quitar` |
 | `entrada` | `servidor`: la ruta la pone el servidor; `propia`: la app escribe aún su `.conf` (transición) | `servidor` |
 | `version` | camino (dentro de su ruta) que responde 200 con `{"version": "..."}` | `version/` |
+| `icono` | fichero de la app (dentro de su ruta, sin pedir sesión) que sale en su tarjeta de la portada, p. ej. `img/logo.png`. Sin él, la inicial | — |
 | `despliegue.workflow` | su workflow con `workflow_dispatch` y dos campos: entorno (dev/pro) y versión | — |
 | `despliegue.anterior` | su workflow entiende la versión `anterior` (volver atrás) | `false` |
 | `despliegue.tipo` | `workflow`, `servidor` (el servidor la despliega desde `imagen`) o `ninguno` | `workflow` |

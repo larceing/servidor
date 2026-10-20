@@ -231,6 +231,7 @@ def salud():
 
 # ── portada ──────────────────────────────────────────────────────────────────
 
+ICONO_RE = re.compile(r"^(?!.*\.\.)[A-Za-z0-9._-][A-Za-z0-9._/-]{0,99}$")
 TITULOS = {"pro": "Producción", "dev": "Pruebas"}
 SUBTITULOS = {"pro": "Las aplicaciones en uso.", "dev": "Versiones en pruebas: los datos de aquí no son los reales."}
 
@@ -265,7 +266,8 @@ def portada(request: Request):
             puede_ver(a.get("grupos") or a.get("grupo", ""), mios, it) or (a.get("principal") and dentro.get(a["ruta"])))]
         titulo, sub = TITULOS[ent], SUBTITULOS[ent]
     apps = [{**a, "enlace": _enlace(a, host),
-             "salud_url": "" if a.get("principal") else _enlace(a, host) + (a.get("salud") or "version/")} for a in apps]
+             "salud_url": "" if a.get("principal") else _enlace(a, host) + (a.get("salud") or "version/"),
+             "icono_url": _enlace(a, host) + a["icono"] if ICONO_RE.match(a.get("icono") or "") else ""} for a in apps]
     logo = (p or {}).get("logo", "") if en_dominio_de(request) else ""
     r = plantillas.TemplateResponse(request, "portada.html", {
         "usuario": usuario(request), "it": it, "apps": apps, "entorno": ent, "titulo": titulo, "sub": sub,

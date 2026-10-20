@@ -72,10 +72,15 @@ class Manifiesto(Base):
                  {"ruta": "app", "despliegue": {"tipo": "workflow", "workflow": "../x.yml", "repo": "a/b"}},
                  {"ruta": "app", "despliegue": {"tipo": "servidor", "imagen": "img:latest"}},
                  {"ruta": "app", "nombre": "x'; alert(1)"}, {"ruta": "app", "grupo": "a;b"},
-                 {"ruta": "app", "version": "a b"}]
+                 {"ruta": "app", "version": "a b"}, {"ruta": "app", "icono": "../x.png"},
+                 {"ruta": "app", "icono": "img/"}, {"ruta": "app", "icono": "a b.png"}]
         for m in malos:
             with self.assertRaises(S.Error, msg=m):
                 S.validar_manifiesto(m)
+
+    def test_icono(self):
+        self.assertEqual(S.validar_manifiesto({"ruta": "app", "icono": "/img/logo.png"})["icono"], "img/logo.png")
+        self.assertNotIn("icono", S.validar_manifiesto({"ruta": "app"}))
 
     def test_servidor_lleva_cliente_de_keycloak(self):
         m = S.validar_manifiesto({"ruta": "app", "despliegue": {"tipo": "servidor", "imagen": "ghcr.io/a/b"}})
