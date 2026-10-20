@@ -34,10 +34,10 @@ from . import claves, en_curso, github, guardado
 
 ENTORNOS = ("dev", "pro")
 NOMBRES = {"dev": "DEV", "pro": "PRO"}
-VERSION_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
-RUTA_RE = re.compile(r"^[a-z][a-z0-9-]{1,30}$")
-ID_RE = re.compile(r"^(?:[a-z][a-z0-9-]{1,30}\.)?[a-z][a-z0-9-]{1,30}$")
-FICHERO_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,80}$")
+VERSION_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}\Z")
+RUTA_RE = re.compile(r"^[a-z][a-z0-9-]{1,30}\Z")
+ID_RE = re.compile(r"^(?:[a-z][a-z0-9-]{1,30}\.)?[a-z][a-z0-9-]{1,30}\Z")
+FICHERO_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,80}\Z")
 
 
 def env(k: str, defecto: str = "") -> str:
@@ -231,7 +231,7 @@ def salud():
 
 # ── portada ──────────────────────────────────────────────────────────────────
 
-ICONO_RE = re.compile(r"^(?!.*\.\.)[A-Za-z0-9._-][A-Za-z0-9._/-]{0,99}$")
+ICONO_RE = re.compile(r"^(?!.*\.\.)[A-Za-z0-9._-][A-Za-z0-9._/-]{0,99}\Z")
 TITULOS = {"pro": "Producción", "dev": "Pruebas"}
 SUBTITULOS = {"pro": "Las aplicaciones en uso.", "dev": "Versiones en pruebas: los datos de aquí no son los reales."}
 
