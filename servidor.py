@@ -211,6 +211,10 @@ def validar_manifiesto(m: dict, repo: str = "") -> dict:
     version = str(m.get("version", "version/")).strip().lstrip("/")
     if not CAMINO.match(version):
         raise Error(f"camino de la versión no válido: '{version}'")
+    # su icono en la portada: un fichero de la propia app (p. ej. img/logo.png), dentro de su ruta
+    icono = str(m.get("icono") or "").strip().lstrip("/")
+    if icono and (not CAMINO.match(icono) or ".." in icono or icono.endswith("/")):
+        raise Error(f"icono no válido: '{icono}' (un fichero de la app, p. ej. img/logo.png)")
     d = m.get("despliegue") or {}
     if not isinstance(d, dict):
         raise Error("despliegue tiene que ser un objeto")
@@ -263,6 +267,8 @@ def validar_manifiesto(m: dict, repo: str = "") -> dict:
         m2["principal"] = True
     if dentro:
         m2["dentro"] = dentro
+    if icono:
+        m2["icono"] = icono
     return m2
 
 
@@ -709,7 +715,7 @@ def catalogo() -> dict:
             lista.append({"ruta": m["ruta"], "id": ida, "nombre": m["nombre"], "salud": m["version"] or "version/",
                           "grupo": gs[0] if gs else "", "grupos": gs, "camino": camino(reg, datos, ent) + "/",
                           "host": dom or dominio(c, ent), "dentro": m.get("dentro", ""),
-                          "principal": bool(m.get("principal"))})
+                          "principal": bool(m.get("principal")), "icono": m.get("icono", "")})
             vistas.add(m["ruta"])
         for ruta, a in legado_ent.items():
             if ruta in vistas:

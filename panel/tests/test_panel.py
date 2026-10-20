@@ -102,6 +102,15 @@ class Portada(unittest.TestCase):
             self.assertIn(n, r.text)
         self.assertIn("https://pro.ejemplo.com/ajustes/", r.text)
 
+    def test_icono_de_la_app_en_su_tarjeta(self):
+        cat = json.loads(json.dumps(CATALOGO))
+        cat["entradas"]["dev"][0]["icono"] = "img/logo.png"
+        cat["entradas"]["dev"][1]["icono"] = "../fuera.png"   # no vale: se queda la inicial
+        poner_catalogo(cat)
+        r = cliente("henry", ["/IT"], entorno="dev").get("/portada/")
+        self.assertIn('src="/tareas/img/logo.png"', r.text)
+        self.assertNotIn("fuera.png", r.text)
+
     def test_salir_cierra_keycloak_y_vuelve_a_la_portada(self):
         c = cliente("henry", ["/IT"])
         r = c.get("/ajustes/salir", follow_redirects=False)
