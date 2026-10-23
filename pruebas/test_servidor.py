@@ -133,6 +133,13 @@ class Entrada(Base):
         self.assertNotIn("dominio-inventario.conf", dev)
         self.assertIn("server_name inventario.ejemplo.com;", pro["dominio-inventario.conf"])
         self.assertIn("set $destino inventario-pro:8000;", pro["dominio-inventario.conf"])
+        # el www del mismo dominio redirige al dominio sin www
+        self.assertIn("server_name www.inventario.ejemplo.com;", pro["dominio-inventario.conf"])
+        self.assertIn("return 301 https://inventario.ejemplo.com$request_uri;", pro["dominio-inventario.conf"])
+
+    def test_dominio_con_www_no_se_duplica(self):
+        self.assertEqual(S.conf_www("www.ejemplo.com"), "")
+        self.assertIn("server_name www.ejemplo.com;", S.conf_www("ejemplo.com"))
 
     def test_aplicar_vuelve_atras_si_nginx_no_la_acepta(self):
         with mock.patch.object(S, "nginx_valida"), mock.patch("subprocess.run"):
