@@ -543,13 +543,28 @@ server {{
   error_page 502 503 504 /no-disponible.html;
   location = /no-disponible.html {{ root /etc/nginx/conf.d/html; internal; }}
 {"".join(partes)}}}
-""".replace("\n  proxy_", "\n    proxy_")
+""".replace("\n  proxy_", "\n    proxy_") + conf_www(dom)
 
 
 def estaticos(ruta: str) -> list:
     """Los ficheros fijos (logo...) de la portada de una app principal: estado/estaticos/<ruta>/."""
     base = DIR / "estado" / "estaticos" / ruta
     return sorted(f.name for f in base.glob("*") if f.is_file() and ESTATICO.match(f.name)) if base.is_dir() else []
+
+
+def conf_www(dom: str) -> str:
+    """www.<dominio> redirige al dominio sin www, con la misma ruta. Nginx Proxy
+    Manager suele llevar los dos nombres en el mismo host: al apuntarlo a la
+    entrada de PRO, el www tambien llega aqui y no debe quedarse sin respuesta."""
+    if dom.startswith("www."):
+        return ""
+    return f"""
+server {{
+  listen 80;
+  server_name www.{dom};
+  return 301 https://{dom}$request_uri;
+}}
+"""
 
 
 def conf_dominio(m: dict, dom: str) -> str:
@@ -570,7 +585,7 @@ server {{
     proxy_read_timeout 300s;
   }}
 }}
-""".replace("\n  proxy_", "\n    proxy_")
+""".replace("\n  proxy_", "\n    proxy_") + conf_www(dom)
 
 
 def pagina_no_disponible(ent: str) -> str:
