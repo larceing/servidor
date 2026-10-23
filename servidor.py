@@ -56,27 +56,27 @@ IMAGEN_NGINX = "nginx:1.27-alpine"
 PANEL = "servidor-panel"          # contenedor y nombre en la red del proxy
 PANEL_UID = 10001                  # usuario del contenedor del panel
 CADA_ACTUALIZAR = 60               # segundos entre busquedas de version nueva
-CADA_DOMINIOS = 600
-CARPETAS_FIJAS = ("marca", "js")   # carpetas del portal de antes que sirve la portada en su dominio                # cada cuanto se mira si los dominios propios siguen bien
+CADA_DOMINIOS = 600                # cada cuanto se mira si los dominios propios siguen bien
+CARPETAS_FIJAS = ("marca", "js")   # carpetas del portal de antes que sirve la portada en su dominio
 ESPERA_SALUD = 300
 
-RUTA = re.compile(r"^[a-z][a-z0-9-]{1,30}$")
+RUTA = re.compile(r"^[a-z][a-z0-9-]{1,30}\Z")
 RESERVADAS = {"ajustes", "auth", "portada", "version", "no-disponible", "static", "salud"}
-NOMBRE = re.compile(r"^[\w .()-]{1,60}$")
-GRUPO = re.compile(r"^[A-Za-z0-9][A-Za-z0-9 _.-]{0,40}$")
-CONTENEDOR = re.compile(r"^[a-z0-9][a-z0-9_.-]{0,62}$")
-CAMINO = re.compile(r"^[A-Za-z0-9._/-]{0,100}$")
-REPO = re.compile(r"^[\w.-]{1,100}/[\w.-]{1,100}$")
-WORKFLOW = re.compile(r"^[\w.-]{1,100}\.ya?ml$")
-RAMA = re.compile(r"^[\w./-]{1,100}$")
-CAMPO = re.compile(r"^[A-Za-z_][A-Za-z0-9_-]{0,40}$")
-IMAGEN = re.compile(r"^[a-z0-9][a-z0-9./_-]{2,200}$")
-VERSION = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
-DOMINIO = re.compile(r"^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,}$")
-ID_PETICION = re.compile(r"^[A-Za-z0-9_-]{6,80}$")
-ID_APP = re.compile(r"^(?:[a-z][a-z0-9-]{1,30}\.)?[a-z][a-z0-9-]{1,30}$")
-ESTATICO = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,80}\.(webp|png|svg|ico|jpg|jpeg|css|js|woff2?)$")
-DESTINO = re.compile(r"^(/[A-Za-z0-9._/-]{0,100}|https://[a-z0-9.-]+(/[A-Za-z0-9._/-]{0,100})?)$")
+NOMBRE = re.compile(r"^[\w .()-]{1,60}\Z")
+GRUPO = re.compile(r"^[A-Za-z0-9][A-Za-z0-9 _.-]{0,40}\Z")
+CONTENEDOR = re.compile(r"^[a-z0-9][a-z0-9_.-]{0,62}\Z")
+CAMINO = re.compile(r"^[A-Za-z0-9._/-]{0,100}\Z")
+REPO = re.compile(r"^[\w.-]{1,100}/[\w.-]{1,100}\Z")
+WORKFLOW = re.compile(r"^[\w.-]{1,100}\.ya?ml\Z")
+RAMA = re.compile(r"^[\w./-]{1,100}\Z")
+CAMPO = re.compile(r"^[A-Za-z_][A-Za-z0-9_-]{0,40}\Z")
+IMAGEN = re.compile(r"^[a-z0-9][a-z0-9./_-]{2,200}\Z")
+VERSION = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}\Z")
+DOMINIO = re.compile(r"^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,}\Z")
+ID_PETICION = re.compile(r"^[A-Za-z0-9_-]{6,80}\Z")
+ID_APP = re.compile(r"^(?:[a-z][a-z0-9-]{1,30}\.)?[a-z][a-z0-9-]{1,30}\Z")
+ESTATICO = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,80}\.(webp|png|svg|ico|jpg|jpeg|css|js|woff2?)\Z")
+DESTINO = re.compile(r"^(/[A-Za-z0-9._/-]{0,100}|https://[a-z0-9.-]+(/[A-Za-z0-9._/-]{0,100})?)\Z")
 
 
 class Error(Exception):
@@ -192,7 +192,7 @@ def validar_manifiesto(m: dict, repo: str = "") -> dict:
     dentro = str(m.get("dentro") or "").strip().strip("/").lower()
     if dentro and (principal or not RUTA.match(dentro) or dentro in RESERVADAS or dentro == ruta):
         raise Error(f"dentro no válido: '{dentro}' (la ruta de su app principal)")
-    contenedor = str(m.get("contenedor") or (f"{dentro}-{{ruta}}-{{entorno}}" if dentro else "{ruta}-{entorno}"))
+    contenedor = str(m.get("contenedor") or (f"{dentro}-{{ruta}}-{{entorno}}" if dentro else "{ruta}-{entorno}")).strip()
     for ent in ENTORNOS:
         if not CONTENEDOR.match(contenedor.replace("{entorno}", ent).replace("{ruta}", ruta)):
             raise Error(f"contenedor no válido: '{contenedor}' (p. ej. {ruta}-{{entorno}})")
@@ -666,7 +666,9 @@ def aplicar_entrada(ent: str, forzar_recarga: bool = False) -> bool:
         _RECHAZADAS[ent] = huella
         raise Error(f"{ent}: nginx no acepta la configuración nueva; sigue la de antes.\n{e}") from None
     _RECHAZADAS.pop(ent, None)
-    subprocess.run(["docker", "exec", f"entrada-{ent}", "nginx", "-s", "reload"], capture_output=True)
+    r = subprocess.run(["docker", "exec", f"entrada-{ent}", "nginx", "-s", "reload"], capture_output=True, text=True)
+    if r.returncode != 0:
+        log(f"aviso: {ent}: nginx -s reload falló: {(r.stderr or '').strip()[-200:]}")
     log(f"{ent}: entrada actualizada")
     return True
 
@@ -1558,6 +1560,9 @@ def procesar_peticiones() -> int:
         _SALIDA = []
         res = {"id": pid, "accion": accion, "quien": str(pet.get("quien", ""))[:80],
                "pedida": str(pet.get("fecha", ""))[:30], "inicio": ahora()}
+        # Para que el panel sepa de qué app es cada resultado (sin tokens ni claves).
+        datos = pet.get("datos") if isinstance(pet.get("datos"), dict) else {}
+        res["datos"] = {k: str(datos[k])[:80] for k in ("id", "entorno", "version") if k in datos}
         try:
             if accion not in ACCIONES:
                 raise Error(f"acción desconocida: '{accion}'")

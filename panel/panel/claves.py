@@ -20,8 +20,8 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 PREFIJO = "srv_"
-CLAVE_RE = re.compile(r"^srv_([0-9a-f]{8})_([A-Za-z0-9_-]{30,80})$")
-NOMBRE_RE = re.compile(r"^[\w .:@()-]{1,60}$")
+CLAVE_RE = re.compile(r"^srv_([0-9a-f]{8})_([A-Za-z0-9_-]{30,80})\Z")
+NOMBRE_RE = re.compile(r"^[\w .:@()-]{1,60}\Z")
 _cerrojo = threading.Lock()
 
 

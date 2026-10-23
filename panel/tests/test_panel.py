@@ -219,6 +219,16 @@ class Ajustes(unittest.TestCase):
             self.assertIn("ya se está desplegando", r.text)
         self.assertEqual(lanzar.call_count, 1)
 
+    def test_en_curso_servidor_solo_acaba_con_su_resultado(self):
+        en_curso.soltar("sindri")
+        en_curso.reservar("sindri", "dev", "sha-1111111", "henry")
+        desde = en_curso.leer()["sindri"]["desde"]
+        otra = [{"accion": "desplegar", "ok": False, "fin": desde, "datos": {"id": "mail"}}]
+        self.assertIsNotNone(en_curso.resolver("sindri", "servidor", "", [], otra))
+        self.assertNotIn("fallo", en_curso.leer()["sindri"])
+        suya = [{"accion": "desplegar", "ok": True, "fin": desde, "datos": {"id": "sindri"}}]
+        self.assertIsNone(en_curso.resolver("sindri", "servidor", "", [], suya))
+
     def test_en_curso_acaba_cuando_github_termina(self):
         c = cliente("henry", ["/IT"])
         with mock.patch.object(github, "lanzar"):

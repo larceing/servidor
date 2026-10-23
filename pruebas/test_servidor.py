@@ -73,10 +73,17 @@ class Manifiesto(Base):
                  {"ruta": "app", "despliegue": {"tipo": "servidor", "imagen": "img:latest"}},
                  {"ruta": "app", "nombre": "x'; alert(1)"}, {"ruta": "app", "grupo": "a;b"},
                  {"ruta": "app", "version": "a b"}, {"ruta": "app", "icono": "../x.png"},
-                 {"ruta": "app", "icono": "img/"}, {"ruta": "app", "icono": "a b.png"}]
+                 {"ruta": "app", "icono": "img/"}, {"ruta": "app", "icono": "a b.png"},
+                 {"ruta": "app", "contenedor": "x\nx"}]
         for m in malos:
             with self.assertRaises(S.Error, msg=m):
                 S.validar_manifiesto(m)
+
+    def test_contenedor_sin_espacios_ni_saltos(self):
+        # Un salto de línea al final rompería la entrada de nginx de todo el entorno.
+        self.assertEqual(S.validar_manifiesto({"ruta": "app", "contenedor": "app-{entorno}\n"})["contenedor"], "app-{entorno}")
+        self.assertIsNone(S.CONTENEDOR.match("x\n"))
+        self.assertIsNone(S.ID_PETICION.match("abcdef\n"))
 
     def test_icono(self):
         self.assertEqual(S.validar_manifiesto({"ruta": "app", "icono": "/img/logo.png"})["icono"], "img/logo.png")

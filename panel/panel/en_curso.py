@@ -97,7 +97,8 @@ def resolver(ruta: str, tipo: str, version_viva: str, ejecuciones: list, resulta
                     fallo = r.get("resultado") or "falló"
     elif tipo == "servidor":
         for r in resultados:
-            if r.get("accion") == "desplegar" and (r.get("fin") or "") >= e["desde"]:
+            # Solo el resultado de esta app (los resultados antiguos no traen datos: valen como antes).
+            if r.get("accion") == "desplegar" and (r.get("datos") or {}).get("id", ruta) == ruta and (r.get("fin") or "") >= e["desde"]:
                 fin = True
                 if not r.get("ok"):
                     fallo = "falló"
