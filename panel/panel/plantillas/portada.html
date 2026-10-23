@@ -1,66 +1,107 @@
 <!doctype html>
-{# La portada de un entorno (https://dev.../ o https://pro.../). Aqui solo llegan las apps que la persona puede ver. #}
+{# La portada de un entorno (https://dev.../ o https://pro.../), con la plantilla común de las apps.
+   Aqui solo llegan las apps que la persona puede ver. Las apps principales (SPSIL) usan portada_principal.html. #}
+{%- set COLORES = {"sindri": "#1D4F7A", "brook": "#B5486B", "soporte": "#9A520C", "odin": "#9A520C", "tareas": "#6A4BC4",
+                   "aris": "#6A4BC4", "mail": "#0E7C6B", "report-server": "#2F6FB0", "demos": "#4B5563", "web": "#15202B"} -%}
+{%- set RESTO = ["#1D4F7A", "#0E7C6B", "#6A4BC4", "#B5486B", "#2F6FB0", "#9A520C"] -%}
 <html lang="es">
 <head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>{{ titulo }}{% if not propio %} · {{ entorno|upper }}{% endif %}</title>
+<title>{{ titulo }} · {{ entorno|upper }}</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Roboto+Flex:opsz,wght@8..144,400..700&display=swap" rel="stylesheet">
 <style>
-:root{--fondo:#f4f6fb;--tarjeta:#fff;--texto:#111827;--suave:#6b7280;--borde:#e5e7eb;--acento:#2563eb;--ok:#16a34a;--mal:#9ca3af;--sombra:0 1px 2px rgba(16,24,40,.05),0 8px 24px rgba(16,24,40,.06)}
-@media (prefers-color-scheme:dark){:root{--fondo:#0b1020;--tarjeta:#141a2e;--texto:#e5e7eb;--suave:#9ca3af;--borde:#232b45;--acento:#60a5fa;--ok:#4ade80;--mal:#6b7280;--sombra:none}}
+:root{--fondo:#F3F6FA;--capa:#E6EBF2;--tarjeta:#fff;--texto:#191C20;--suave:#43474E;--borde:#C3C7CF;
+  --primario:#1D4F7A;--tonal:#D3E4F5;--sobre-tonal:#0B2E4B;--ok:#1E8A63;--mal:#8D9199;--avatar:#35D6C0;--sombra:0 2px 12px #0f172a1a}
+@media (prefers-color-scheme:dark){:root{--fondo:#111418;--capa:#1D2024;--tarjeta:#191C20;--texto:#E1E2E8;--suave:#C3C7CF;--borde:#43474E;
+  --primario:#A0CAFD;--tonal:#1F3A55;--sobre-tonal:#D3E4F5;--ok:#5BD3A0;--mal:#8D9199;--sombra:none}}
 *{box-sizing:border-box}
-body{margin:0;min-height:100vh;font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;background:var(--fondo);color:var(--texto);display:flex;flex-direction:column}
-main{width:100%;max-width:880px;margin:0 auto;padding:56px 20px 32px;flex:1}
-.cab{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
-h1{font-size:26px;margin:0;letter-spacing:-.01em}
-.sub{color:var(--suave);margin:8px 0 32px}
-.chip{font-size:12px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;padding:4px 10px;border-radius:999px;background:var(--chip-fondo);color:var(--chip-texto)}
-.dev{--chip-fondo:#fef3c7;--chip-texto:#92400e}
-.pro{--chip-fondo:#dcfce7;--chip-texto:#166534}
-.apps{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:16px}
-.app{display:flex;gap:14px;align-items:center;padding:18px;background:var(--tarjeta);border:1px solid var(--borde);border-radius:14px;box-shadow:var(--sombra);text-decoration:none;color:inherit;transition:transform .12s,border-color .12s}
-.app:hover{transform:translateY(-2px);border-color:var(--acento)}
-.ico{flex:none;width:44px;height:44px;border-radius:12px;display:grid;place-items:center;font-weight:700;font-size:18px;color:#fff;background:linear-gradient(135deg,#2563eb,#7c3aed)}
+body{margin:0;min-height:100vh;font-family:"Roboto Flex",Roboto,system-ui,-apple-system,"Segoe UI",sans-serif;background:var(--fondo);color:var(--texto);display:flex;flex-direction:column;-webkit-font-smoothing:antialiased}
+a{color:var(--primario)}
+:focus-visible{outline:3px solid var(--primario);outline-offset:2px}
+.cab{display:flex;align-items:center;gap:12px;padding:12px 24px;flex-wrap:wrap}
+.marca{display:flex;align-items:center;gap:12px;font-size:20px;font-weight:600;color:var(--texto);text-decoration:none}
+.marca .ad{width:40px;height:40px;border-radius:12px;background:#1D4F7A;color:#fff;display:grid;place-items:center;font-size:15px;font-weight:700}
+.chip{font-size:12px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;padding:6px 12px;border-radius:8px;background:var(--chip-fondo);color:var(--chip-texto)}
+.chip.dev{--chip-fondo:#FFE0B2;--chip-texto:#5A3300}
+.chip.pro{--chip-fondo:#C8F0E0;--chip-texto:#0B3B2C}
+.hueco{flex:1}
+.buscar{flex:0 1 380px;min-width:200px;display:flex;align-items:center;gap:10px;min-height:48px;border-radius:24px;background:var(--capa);padding:0 18px;color:var(--suave)}
+.buscar input{border:0;outline:0;background:transparent;font:inherit;font-size:16px;color:var(--texto);flex:1;min-width:0}
+.boton{display:inline-flex;align-items:center;gap:6px;min-height:44px;padding:0 16px;border-radius:12px;background:var(--tarjeta);color:var(--texto);text-decoration:none;font-weight:500;font-size:15px}
+.boton:hover{background:var(--capa)}
+.sesion{display:flex;align-items:center;gap:8px}
+.avatar{width:40px;height:40px;border-radius:999px;background:var(--avatar);color:#0E1B33;display:grid;place-items:center;font-weight:600;text-transform:uppercase}
+.salir{display:inline-flex;align-items:center;min-height:44px;padding:0 10px;border-radius:12px;font-weight:500;text-decoration:none}
+.salir:hover{background:var(--capa)}
+main{width:100%;max-width:1240px;margin:0 auto;padding:8px 24px 40px;flex:1}
+h1{margin:8px 0 4px;font-size:32px;font-weight:600;letter-spacing:-.01em}
+.sub{margin:0 0 20px;color:var(--suave)}
+.apps{background:var(--tarjeta);border-radius:28px;padding:12px;display:grid;grid-template-columns:repeat(auto-fill,minmax(132px,1fr));gap:4px}
+.app{display:flex;flex-direction:column;align-items:center;gap:10px;text-decoration:none;color:var(--texto);font-size:15px;font-weight:500;padding:18px 8px 16px;border-radius:20px;text-align:center;min-width:0;overflow-wrap:anywhere}
+.app:hover{background:var(--capa)}
+.app[hidden]{display:none}
+.ico{width:64px;height:64px;border-radius:18px;display:grid;place-items:center;font-size:26px;font-weight:700;color:#fff;background:var(--c,#1D4F7A)}
 .ico-img{background:#fff;border:1px solid var(--borde)}
-.ico-img img{width:34px;height:34px;object-fit:contain}
-.nom{font-weight:600}
-.est{font-size:13px;color:var(--suave);margin-top:4px;display:flex;align-items:center;gap:6px}
-.punto{width:8px;height:8px;border-radius:50%;background:var(--mal)}
+.ico-img img{width:44px;height:44px;object-fit:contain}
+.est{text-align:left;font-size:12px;font-weight:400;color:var(--suave);display:flex;align-items:center;gap:6px}
+.punto{width:8px;height:8px;border-radius:999px;background:var(--mal);flex:none}
 .on .punto{background:var(--ok)}
-.vacio{color:var(--suave)}
+.vacio{grid-column:1/-1;color:var(--suave);margin:12px}
 footer{text-align:center;color:var(--suave);font-size:13px;padding:24px}
-.sesion{margin-left:auto;display:flex;align-items:center;gap:10px;font-size:14px;color:var(--suave)}
-.sesion a.salir{color:var(--acento);text-decoration:none;font-weight:600}
-.ajustes{display:inline-flex;align-items:center;gap:6px;padding:8px 14px;border-radius:10px;border:1px solid var(--borde);background:var(--tarjeta);color:inherit;text-decoration:none;font-weight:600;font-size:14px}
-.ajustes:hover{border-color:var(--acento)}
-.logo{height:40px;width:auto}
+@media (max-width:640px){
+  .cab{padding:12px 16px;gap:8px}
+  .largo{display:none}
+  .boton{padding:0 12px;font-size:18px}
+  .buscar{order:9;flex:1 1 100%}
+  main{padding:8px 16px 32px}
+  h1{font-size:26px}
+  .apps{grid-template-columns:repeat(auto-fill,minmax(96px,1fr));border-radius:24px;padding:8px}
+  .app{padding:14px 4px 12px;font-size:14px}
+  .ico{width:56px;height:56px;border-radius:16px;font-size:22px}
+}
 </style>
 </head>
 <body>
-<main>
-  <div class="cab">
-    {% if logo %}<img class="logo" src="{{ logo }}" alt="">{% endif %}
-    <h1>{{ titulo }}</h1>{% if not propio %}<span class="chip {{ entorno }}">{{ entorno|upper }}</span>{% endif %}
-    <div class="sesion">
-      <span>{{ usuario }}</span>
-      <a class="salir" href="/ajustes/salir" title="Cerrar sesión para entrar con otro usuario">Salir</a>
-      {% if it %}<a class="ajustes" href="{{ ajustes }}">⚙ Ajustes</a>{% endif %}
-    </div>
+<header class="cab">
+  <a class="marca" href="/" aria-label="Arce Data Lab, inicio"><span class="ad" aria-hidden="true">AD</span><span class="largo">Arce Data Lab</span></a>
+  <span class="chip {{ entorno }}">{{ entorno|upper }}<span class="largo"> · {{ titulo }}</span></span>
+  <span class="hueco"></span>
+  <label class="buscar">
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+    <input id="filtro" type="search" aria-label="Buscar una app" placeholder="Buscar una app" autocomplete="off">
+  </label>
+  {% if it %}<a class="boton" href="{{ ajustes }}" aria-label="Ajustes"><span aria-hidden="true">⚙</span><span class="largo">Ajustes</span></a>{% endif %}
+  <div class="sesion">
+    <span class="avatar" title="{{ usuario }}" aria-hidden="true">{{ usuario[:1] }}</span>
+    <a class="salir" href="/ajustes/salir" title="Cerrar sesión para entrar con otro usuario">Salir</a>
   </div>
+</header>
+<main>
+  <h1>Hola, {{ usuario }}</h1>
   <p class="sub">{{ sub }}</p>
-  <div class="apps">
+  <section class="apps" aria-label="Apps">
     {% for a in apps %}
-    <a class="app" href="{{ a.enlace }}"{% if a.salud_url and not a.salud_url.startswith('https://') %} data-salud="{{ a.salud_url }}"{% endif %}><span class="ico{% if a.icono_url %} ico-img{% endif %}" data-letra="{{ a.nombre[:1] }}">{% if a.icono_url %}<img src="{{ a.icono_url }}" alt="">{% else %}{{ a.nombre[:1] }}{% endif %}</span><span><div class="nom">{{ a.nombre }}</div><div class="est"><span class="punto"></span><span class="txt">{% if a.principal %}Sus aplicaciones{% elif a.salud_url.startswith('https://') %}En su dominio{% else %}Comprobando...{% endif %}</span></div></span></a>
+    <a class="app" href="{{ a.enlace }}" data-nombre="{{ a.nombre|lower }}"{% if a.salud_url and not a.salud_url.startswith('https://') %} data-salud="{{ a.salud_url }}"{% endif %}><span class="ico{% if a.icono_url %} ico-img{% endif %}" style="--c:{{ COLORES.get(a.ruta, RESTO[loop.index0 % 6]) }}" data-letra="{{ a.nombre[:1] }}">{% if a.icono_url %}<img src="{{ a.icono_url }}" alt="">{% else %}{{ a.nombre[:1] }}{% endif %}</span>{{ a.nombre }}<span class="est"><span class="punto"></span><span class="txt">{% if a.principal %}Sus aplicaciones{% elif a.salud_url.startswith('https://') %}En su dominio{% else %}Comprobando...{% endif %}</span></span></a>
     {% else %}
     <p class="vacio">No tienes acceso a ninguna aplicación de este entorno. Si crees que deberías, pídeselo a IT.</p>
     {% endfor %}
-  </div>
+    <p class="vacio" id="nada" hidden>Ninguna app se llama así.</p>
+  </section>
 </main>
-<footer>{% if propio %}{{ titulo }}{% else %}Entorno {{ entorno|upper }}{% endif %}</footer>
+<footer>Entorno {{ entorno|upper }}</footer>
 <script>
 // si el icono de una app no carga, vuelve a su inicial
 document.querySelectorAll(".ico-img img").forEach(function (img) {
   function letra() { var s = img.parentNode; s.classList.remove("ico-img"); s.textContent = s.dataset.letra; }
   if (img.complete && !img.naturalWidth) letra(); else img.addEventListener("error", letra);
+});
+// el buscador filtra las tarjetas por nombre
+var filtro = document.getElementById("filtro"), nada = document.getElementById("nada");
+filtro.addEventListener("input", function () {
+  var q = filtro.value.trim().toLowerCase(), alguna = false;
+  document.querySelectorAll(".app").forEach(function (a) { var si = !q || a.dataset.nombre.indexOf(q) >= 0; a.hidden = !si; alguna = alguna || si; });
+  nada.hidden = alguna || !document.querySelector(".app");
 });
 var VERSIONES = {{ it|tojson }};   // la version de cada app, solo para IT
 document.querySelectorAll(".app[data-salud]").forEach(function (a) {
