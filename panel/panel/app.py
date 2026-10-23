@@ -269,7 +269,7 @@ def portada(request: Request):
              "salud_url": "" if a.get("principal") else _enlace(a, host) + (a.get("salud") or "version/"),
              "icono_url": _enlace(a, host) + a["icono"] if ICONO_RE.match(a.get("icono") or "") else ""} for a in apps]
     logo = (p or {}).get("logo", "") if en_dominio_de(request) else ""
-    r = plantillas.TemplateResponse(request, "portada.html", {
+    r = plantillas.TemplateResponse(request, "portada_principal.html" if p else "portada.html", {
         "usuario": usuario(request), "it": it, "apps": apps, "entorno": ent, "titulo": titulo, "sub": sub,
         "logo": f"/{logo}" if logo and FICHERO_RE.match(logo) else "", "propio": bool(en_dominio_de(request)),
         "ajustes": f"{base_url(env('AJUSTES_EN', 'pro'))}/ajustes/" if base_url(env("AJUSTES_EN", "pro")) else "/ajustes/"})
