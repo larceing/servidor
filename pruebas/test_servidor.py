@@ -496,3 +496,49 @@ class ComprobarDominio(unittest.TestCase):
     def test_app_principal_mira_el_panel(self):
         pedidas, _ = self._mirada({"ruta": "spsil", "principal": True, "version": "version/"})
         self.assertEqual(pedidas, ["https://x.ejemplo.com/ajustes/salud"])
+
+
+class TemaLogin(unittest.TestCase):
+    """El login con la plantilla común: lo llevan la portada y las apps sueltas, no SPSIL."""
+
+    def test_clientes_con_tema_deja_fuera_principales_y_subapps(self):
+        reg = {
+            "sindri": {"manifiesto": {"ruta": "sindri", "keycloak": {"cliente": "{ruta}-{entorno}"}}},
+            "spsil": {"manifiesto": {"ruta": "spsil", "principal": True, "keycloak": {"cliente": "{ruta}-{entorno}"}}},
+            "spsil.tareas": {"manifiesto": {"ruta": "tareas", "dentro": "spsil", "keycloak": {"cliente": "spsil-{ruta}-{entorno}"}}},
+            "web": {"manifiesto": {"ruta": "web", "keycloak": {}}},
+        }
+        self.assertEqual(S.clientes_con_tema({"KEYCLOAK_CLIENTE": "servidor"}, reg),
+                         ["servidor", "sindri-dev", "sindri-pro"])
+
+    def _kc(self, tema):
+        cli = {"clientId": "sindri-dev", "attributes": {"login_theme": tema} if tema is not None else {}}
+        puestos = []
+
+        def kc(*args, entrada=None):
+            if args[:2] == ("get", "clients"):
+                return "id1"
+            if args[:2] == ("get", "clients/id1"):
+                return json.dumps(cli)
+            if args[0] == "update":
+                puestos.append(json.loads(entrada))
+            return ""
+        return kc, puestos
+
+    def test_pone_el_tema_si_tiene_el_de_serie(self):
+        for tema in ("keycloak", "", None):
+            kc, puestos = self._kc(tema)
+            with mock.patch.object(S, "kc", side_effect=kc), mock.patch.object(S, "log"):
+                self.assertTrue(S.poner_tema_si_de_serie("r", "sindri-dev", "arcedatalab"))
+            self.assertEqual(puestos[0]["attributes"]["login_theme"], "arcedatalab")
+
+    def test_no_pisa_un_tema_elegido(self):
+        kc, puestos = self._kc("spsil")
+        with mock.patch.object(S, "kc", side_effect=kc):
+            self.assertFalse(S.poner_tema_si_de_serie("r", "sindri-dev", "arcedatalab"))
+        self.assertEqual(puestos, [])
+
+    def test_el_tema_del_repo_hereda_de_keycloak(self):
+        props = (RAIZ / "keycloak" / "temas" / S.TEMA_LOGIN / "login" / "theme.properties").read_text()
+        self.assertIn("parent=keycloak", props)
+        self.assertIn("css/login.css", props)

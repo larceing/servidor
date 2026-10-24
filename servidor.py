@@ -36,6 +36,7 @@ from __future__ import annotations
 import base64
 import datetime as _dt
 import fcntl
+import hashlib
 import json
 import os
 import re
@@ -877,6 +878,66 @@ def asegurar_cliente(cliente: str, nombre: str, urls: list[str], tema: str = "")
         anadir_url_cliente(realm, cid, u)
     return kc("get", f"clients/{cid}/client-secret", "-r", realm, "--fields", "value",
               "--format", "csv", "--noquotes").strip()
+
+
+# El login de Keycloak con la plantilla comun de las apps: keycloak/temas/<TEMA_LOGIN>
+# (solo CSS sobre el tema «keycloak»). Se copia al contenedor y lo llevan la portada y las
+# apps propias que siguen con el de serie; las principales (SPSIL) y sus subapps, el suyo.
+TEMA_LOGIN = "arcedatalab"
+
+
+def _huella_tema(carpeta: Path) -> str:
+    h = hashlib.sha256()
+    for f in sorted(p for p in carpeta.rglob("*") if p.is_file()):
+        h.update(str(f.relative_to(carpeta)).encode() + b"\0" + f.read_bytes())
+    return h.hexdigest()
+
+
+def clientes_con_tema(c: dict, reg: dict) -> list[str]:
+    """La portada y los clientes de las apps sueltas (ni principales ni subapps)."""
+    nombres = [c["KEYCLOAK_CLIENTE"]] if c.get("KEYCLOAK_CLIENTE") else []
+    for datos in reg.values():
+        m = datos["manifiesto"]
+        cliente = (m.get("keycloak") or {}).get("cliente", "")
+        if m.get("principal") or m.get("dentro") or not cliente:
+            continue
+        nombres += [nombre_de(cliente, m["ruta"], ent) for ent in ENTORNOS]
+    return nombres
+
+
+def poner_tema_si_de_serie(realm: str, cliente: str, tema: str) -> bool:
+    """Pone ese login al cliente si tiene el de serie; uno elegido a mano no se toca."""
+    cid = _cliente_id(realm, cliente)
+    if not cid:
+        return False
+    cli = json.loads(kc("get", f"clients/{cid}", "-r", realm))
+    if ((cli.get("attributes") or {}).get("login_theme") or "keycloak") != "keycloak":
+        return False
+    cli.setdefault("attributes", {})["login_theme"] = tema
+    kc("update", f"clients/{cid}", "-r", realm, "-f", "-", entrada=json.dumps(cli))
+    log(f"Keycloak: {cliente} con el login {tema}")
+    return True
+
+
+def tema_login() -> None:
+    """Copia el tema al contenedor de Keycloak si ha cambiado y lo pone a los clientes de serie."""
+    c = cfg()
+    carpeta = Path(__file__).resolve().parent / "keycloak" / "temas" / TEMA_LOGIN
+    if not carpeta.is_dir():
+        return
+    huella = _huella_tema(carpeta)
+    marca = DIR / ".tema-login"
+    cont, destino = c["KEYCLOAK_CONTENEDOR"], f"/opt/keycloak/themes/{TEMA_LOGIN}"
+    if not marca.exists() or marca.read_text().strip() != huella:
+        run(["docker", "exec", "-u", "0", cont, "mkdir", "-p", destino], timeout=60)
+        run(["docker", "cp", f"{carpeta}/.", f"{cont}:{destino}"], timeout=120)
+        run(["docker", "exec", "-u", "0", cont, "chmod", "-R", "a+rX", destino], timeout=60)
+        log(f"Keycloak: login {TEMA_LOGIN} copiado")
+    kc_entrar()
+    realm = _realm(c)
+    for cliente in clientes_con_tema(c, registro()):
+        poner_tema_si_de_serie(realm, cliente, TEMA_LOGIN)
+    marca.write_text(huella + "\n")
 
 
 def anadir_url_cliente(realm: str, cid: str, url: str) -> None:
@@ -1776,6 +1837,10 @@ def agente() -> None:
         sys.exit("ya hay otro agente en marcha")
     preparar_carpetas()
     log(f"agente en marcha (versión {version_actual()})")
+    try:
+        tema_login()
+    except Error as e:
+        log(f"aviso: login de Keycloak: {e}")
     aplicar_todo()
     ultima = 0.0
     ultima_dominios = 0.0

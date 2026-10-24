@@ -1,0 +1,62 @@
+/* Login de Keycloak con la plantilla común de las apps de Arce Data Lab:
+   panel tonal con la marca y las apps a la izquierda, tarjeta blanca redondeada a la derecha.
+   Solo CSS sobre el tema «keycloak»: las plantillas y los formularios son los de serie. */
+@import url("https://fonts.googleapis.com/css2?family=Roboto+Flex:opsz,wght@8..144,400..700&display=swap");
+
+:root { --fondo: #F3F6FA; --capa: #E6EBF2; --tonal: #D3E4F5; --sobre-tonal: #0B2E4B; --primario: #1D4F7A;
+        --primario-2: #163D5F; --texto: #191C20; --suave: #43474E; --borde: #C3C7CF; }
+
+html, body, .login-pf body { background: var(--fondo) !important; }
+body, .pf-c-form-control, .pf-c-button, .btn, input, button {
+  font-family: "Roboto Flex", Roboto, system-ui, -apple-system, "Segoe UI", sans-serif !important; }
+body { color: var(--texto); -webkit-font-smoothing: antialiased; }
+.login-pf-page { padding: 0; min-height: 100vh; }
+
+/* Cabecera: la marca (el nombre del realm se oculta) */
+#kc-header { margin: 0; padding: 20px 20px 8px; color: var(--sobre-tonal); }
+#kc-header-wrapper { font-size: 0 !important; line-height: 1.1; padding: 0; text-transform: none; letter-spacing: 0;
+  white-space: normal; text-align: left; max-width: 440px; margin: 0 auto; }
+#kc-header-wrapper > * { display: none; }
+#kc-header-wrapper::before { content: "Arce Data Lab"; display: flex; align-items: center; min-height: 44px; padding-left: 56px;
+  font-size: 20px; font-weight: 600; color: var(--sobre-tonal); background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='44' height='44'%3E%3Crect width='44' height='44' rx='14' fill='%231D4F7A'/%3E%3Ctext x='22' y='28' text-anchor='middle' font-family='Roboto Flex,Roboto,Arial,sans-serif' font-size='16' font-weight='700' fill='white'%3EAD%3C/text%3E%3C/svg%3E") left center / 44px 44px no-repeat; }
+
+/* Tarjeta */
+.card-pf { max-width: 440px !important; width: calc(100% - 32px) !important; margin: 12px auto 32px !important; padding: 32px 28px; border: 0; border-top: 0;
+  border-radius: 28px; background: #fff; box-shadow: 0 2px 12px rgba(15, 23, 42, .08); }
+.login-pf-header { margin-bottom: 20px; }
+#kc-page-title { font-size: 26px; font-weight: 600; letter-spacing: -.01em; text-align: left; margin: 0; color: var(--texto); }
+#kc-locale { position: static; float: right; }
+#kc-current-locale-link { color: var(--suave); font-size: 14px; border-radius: 20px; padding: 6px 10px; }
+#kc-current-locale-link:hover { background: var(--capa); }
+
+.pf-c-form__label, .pf-c-form__label-text, .control-label { font-size: 14px; font-weight: 500; color: var(--suave); }
+.form-group { margin-bottom: 18px; }
+.pf-c-form-control { min-height: 52px; border: 1px solid var(--borde) !important; border-radius: 14px !important;
+  padding: 0 16px !important; font-size: 16px !important; background: #fff; box-shadow: none !important; }
+.pf-c-form-control:focus { border-color: var(--primario) !important; outline: 2px solid var(--primario); outline-offset: 0; }
+.pf-c-input-group .pf-c-form-control { border-top-right-radius: 0 !important; border-bottom-right-radius: 0 !important; }
+.pf-c-input-group .pf-c-button.pf-m-control { border-radius: 0 14px 14px 0; min-width: 52px; }
+.pf-c-input-group .pf-c-button.pf-m-control::after { border: 1px solid var(--borde); border-left: 0; border-radius: 0 14px 14px 0; }
+
+.login-pf-settings { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 8px; font-size: 14px; }
+.checkbox label { color: var(--suave); display: flex; align-items: center; gap: 8px; min-height: 32px; padding-left: 0; }
+.checkbox input[type=checkbox] { width: 18px; height: 18px; margin: 0; position: static; }
+a, .login-pf-settings a { color: var(--primario); }
+a:hover { color: var(--sobre-tonal); }
+
+#kc-login, .pf-c-button.pf-m-primary, .btn-primary { min-height: 52px; border: 0 !important; border-radius: 16px !important;
+  background: var(--primario) !important; font-size: 16px !important; font-weight: 600; }
+#kc-login:hover, .pf-c-button.pf-m-primary:hover, .btn-primary:hover { background: var(--primario-2) !important; }
+.pf-c-button.pf-m-secondary, .btn-default { border-radius: 16px !important; }
+.alert, .pf-c-alert { border-radius: 16px; }
+
+/* Escritorio: panel tonal a la izquierda con el lema y las apps */
+@media (min-width: 900px) {
+  .login-pf-page { display: grid; grid-template-columns: minmax(380px, 1fr) minmax(480px, 1fr); align-items: center; }
+  #kc-header { align-self: stretch; background: var(--tonal); padding: 48px; display: flex; align-items: center; }
+  #kc-header-wrapper { margin: 0; max-width: 460px; }
+  #kc-header-wrapper::after { content: "Todas tus apps, con una sola entrada."; display: block; margin-top: 28px; padding-bottom: 196px;
+    font-size: 40px; font-weight: 600; letter-spacing: -.02em; max-width: 360px;
+    background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='324' height='156' viewBox='0 0 324 156'%3E%3Crect x='0' y='0' width='72' height='72' rx='22' fill='%231D4F7A'/%3E%3Ctext x='36' y='46' text-anchor='middle' font-family='Roboto Flex,Roboto,Arial,sans-serif' font-size='28' font-weight='700' fill='white'%3ES%3C/text%3E%3Crect x='84' y='0' width='72' height='72' rx='22' fill='%23B5486B'/%3E%3Ctext x='120' y='46' text-anchor='middle' font-family='Roboto Flex,Roboto,Arial,sans-serif' font-size='28' font-weight='700' fill='white'%3EB%3C/text%3E%3Crect x='168' y='0' width='72' height='72' rx='22' fill='%239A520C'/%3E%3Ctext x='204' y='46' text-anchor='middle' font-family='Roboto Flex,Roboto,Arial,sans-serif' font-size='28' font-weight='700' fill='white'%3EO%3C/text%3E%3Crect x='252' y='0' width='72' height='72' rx='22' fill='%236A4BC4'/%3E%3Ctext x='288' y='46' text-anchor='middle' font-family='Roboto Flex,Roboto,Arial,sans-serif' font-size='28' font-weight='700' fill='white'%3EA%3C/text%3E%3Crect x='0' y='84' width='72' height='72' rx='22' fill='%230E7C6B'/%3E%3Ctext x='36' y='130' text-anchor='middle' font-family='Roboto Flex,Roboto,Arial,sans-serif' font-size='28' font-weight='700' fill='white'%3EM%3C/text%3E%3Crect x='84' y='84' width='72' height='72' rx='22' fill='%232F6FB0'/%3E%3Ctext x='120' y='130' text-anchor='middle' font-family='Roboto Flex,Roboto,Arial,sans-serif' font-size='28' font-weight='700' fill='white'%3ER%3C/text%3E%3Crect x='168' y='84' width='72' height='72' rx='22' fill='%234B5563'/%3E%3Ctext x='204' y='130' text-anchor='middle' font-family='Roboto Flex,Roboto,Arial,sans-serif' font-size='28' font-weight='700' fill='white'%3ED%3C/text%3E%3Crect x='252' y='84' width='72' height='72' rx='22' fill='%2315202B'/%3E%3Ctext x='288' y='130' text-anchor='middle' font-family='Roboto Flex,Roboto,Arial,sans-serif' font-size='28' font-weight='700' fill='white'%3E%E2%9A%99%3C/text%3E%3C/svg%3E") left bottom / 324px 156px no-repeat; }
+  .card-pf { margin: 40px auto !important; }
+}
