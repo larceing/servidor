@@ -810,10 +810,22 @@ def kc(*args, entrada: str | None = None) -> str:
 
 
 def kc_entrar() -> None:
+    """kcadm entra como admin. Con KEYCLOAK_ADMIN_CLIENTE y KEYCLOAK_ADMIN_SECRETO en
+    servidor.env, con esa cuenta de servicio del realm master (no le afecta el 2FA del
+    usuario admin; el secret va por la entrada, no en la linea de comandos). Si no, con
+    el usuario admin del contenedor (KC_BOOTSTRAP_ADMIN_*)."""
+    c = cfg()
+    base = "/opt/keycloak/bin/kcadm.sh config credentials --server http://localhost:8080/auth --realm master "
+    cliente, secreto = c.get("KEYCLOAK_ADMIN_CLIENTE", ""), c.get("KEYCLOAK_ADMIN_SECRETO", "")
     try:
-        run(["docker", "exec", cfg()["KEYCLOAK_CONTENEDOR"], "sh", "-c",
-             '/opt/keycloak/bin/kcadm.sh config credentials --server http://localhost:8080/auth --realm master '
-             '--user "$KC_BOOTSTRAP_ADMIN_USERNAME" --password "$KC_BOOTSTRAP_ADMIN_PASSWORD"'], timeout=60)
+        if cliente and secreto:
+            if not CONTENEDOR.match(cliente):
+                raise Error(f"KEYCLOAK_ADMIN_CLIENTE no válido: '{cliente}'")
+            run(["docker", "exec", "-i", c["KEYCLOAK_CONTENEDOR"], "sh", "-c",
+                 f'read -r S; {base}--client {cliente} --secret "$S"'], entrada=secreto + "\n", timeout=60)
+        else:
+            run(["docker", "exec", c["KEYCLOAK_CONTENEDOR"], "sh", "-c",
+                 base + '--user "$KC_BOOTSTRAP_ADMIN_USERNAME" --password "$KC_BOOTSTRAP_ADMIN_PASSWORD"'], timeout=60)
     except Error as e:
         raise Error(f"no puedo entrar en Keycloak como admin: {e}") from None
 

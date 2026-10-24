@@ -153,6 +153,9 @@ La escribe `instalar`. `DOMINIO_DEV`, `DOMINIO_PRO`, `KEYCLOAK_ISSUER`,
 `ENTORNOS_GESTIONADOS`, `AJUSTES_EN` (dónde está Ajustes: PRO), `LEGADO` (la entrada de
 antes, cuyas rutas se siguen copiando hasta que cada app tenga su manifiesto),
 `PANEL_CLAVE`, `SERVIDOR_IP` (opcional: la IP para el DNS; si no, la de `DOMINIO_PRO`).
+Opcional: `KEYCLOAK_ADMIN_CLIENTE`/`KEYCLOAK_ADMIN_SECRETO`, una cuenta de servicio del realm
+`master` con el rol `admin` para que el servidor gestione Keycloak (grupos, clientes y el tema del
+login) sin el usuario admin, que puede llevar 2FA. Sin ellas usa `KC_BOOTSTRAP_ADMIN_*` del contenedor.
 Aparte, solo para root: `.npm.env` (acceso a Nginx Proxy Manager) y `.cloudflare.env`
 (token de Cloudflare). Ningún dominio, servidor ni persona va en este repositorio.
 
