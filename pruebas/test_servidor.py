@@ -542,3 +542,29 @@ class TemaLogin(unittest.TestCase):
         props = (RAIZ / "keycloak" / "temas" / S.TEMA_LOGIN / "login" / "theme.properties").read_text()
         self.assertIn("parent=keycloak", props)
         self.assertIn("css/login.css", props)
+
+
+class KcEntrar(unittest.TestCase):
+    """kcadm entra con la cuenta de servicio si está configurada (el usuario admin puede tener 2FA)."""
+
+    def _llamadas(self, conf):
+        llamadas = []
+
+        def run(cmd, entrada=None, ok=(0,), timeout=600):
+            llamadas.append((cmd, entrada))
+            return ""
+        with mock.patch.object(S, "cfg", return_value={"KEYCLOAK_CONTENEDOR": "keycloak", **conf}), \
+                mock.patch.object(S, "run", side_effect=run):
+            S.kc_entrar()
+        return llamadas
+
+    def test_con_cuenta_de_servicio_el_secret_va_por_la_entrada(self):
+        [(cmd, entrada)] = self._llamadas({"KEYCLOAK_ADMIN_CLIENTE": "servidor-admin", "KEYCLOAK_ADMIN_SECRETO": "s3cr3t"})
+        self.assertIn("--client servidor-admin", cmd[-1])
+        self.assertNotIn("s3cr3t", " ".join(cmd))
+        self.assertEqual(entrada, "s3cr3t\n")
+
+    def test_sin_cuenta_de_servicio_usa_el_admin_del_contenedor(self):
+        [(cmd, entrada)] = self._llamadas({})
+        self.assertIn("KC_BOOTSTRAP_ADMIN_USERNAME", cmd[-1])
+        self.assertIsNone(entrada)
