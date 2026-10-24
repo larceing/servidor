@@ -4,6 +4,8 @@
 <head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Ajustes del servidor</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Roboto+Flex:opsz,wght@8..144,400..700&display=swap" rel="stylesheet">
 <style>
   :root { --fondo:#f4f6fb; --panel:#fff; --ink:#111827; --muted:#6b7280; --border:#e5e7eb; --acento:#2563eb;
           --verde:#16a34a; --rojo:#dc2626; --gris:#9ca3af; --ambar:#d97706; --ambar-t:#fef3c7; --verde-t:#dcfce7; --rojo-t:#fee2e2; --azul-t:#dbeafe; --gris-t:#f3f4f6;
@@ -67,14 +69,42 @@
   .dentro { margin-left: 18px; }
   .pag select { font: inherit; padding: 7px 10px; border: 1px solid var(--border); border-radius: 8px; font-size: 13px; width: 100%; background: var(--panel); color: var(--ink); }
   .mas { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; margin-top: 10px; }
+
+  /* Plantilla común de las apps: cabecera clara con «Todas las apps», tarjetas blancas
+     redondeadas sobre #F3F6FA, botones en píldora y letra Roboto Flex. Color de Ajustes: #15202B. */
+  :root { --fondo:#F3F6FA; --capa:#E6EBF2; --ink:#191C20; --muted:#43474E; --border:#E3E8EE; --acento:#1D4F7A; --azul-t:#D3E4F5; --sombra:none; }
+  @media (prefers-color-scheme: dark) { :root { --fondo:#111418; --capa:#1D2024; --panel:#191C20; --ink:#E1E2E8; --muted:#C3C7CF; --border:#2B3036; --acento:#A0CAFD; --azul-t:#1F3A55; } }
+  body { font-family: "Roboto Flex", Roboto, system-ui, -apple-system, "Segoe UI", sans-serif; -webkit-font-smoothing: antialiased; }
+  .barra { padding: 12px 20px 0; color: var(--ink); }
+  .apps-btn { width: 44px; height: 44px; border-radius: 12px; background: var(--capa); color: var(--muted); display: inline-flex; align-items: center; justify-content: center; flex: none; }
+  .apps-btn:hover { background: var(--azul-t); }
+  .marca { display: inline-flex; align-items: center; gap: 10px; font-size: 18px; font-weight: 600; }
+  .app-ico { width: 36px; height: 36px; border-radius: 10px; background: #15202B; color: #fff; display: grid; place-items: center; font-size: 18px; }
+  .barra .yo { display: inline-flex; align-items: center; gap: 8px; color: var(--muted); }
+  .avatar { width: 36px; height: 36px; border-radius: 999px; background: #35D6C0; color: #0E1B33; display: grid; place-items: center; font-weight: 600; text-transform: uppercase; }
+  .barra .salir { display: inline-flex; align-items: center; min-height: 40px; padding: 0 12px; border-radius: 20px; font-weight: 500; }
+  .barra .salir:hover { background: var(--capa); }
+  @media (max-width: 640px) { .barra .largo { display: none; } }
+  h1 { font-size: 30px; font-weight: 600; margin-top: 8px; }
+  .app, .form, .principal { border: 0; border-radius: 24px; }
+  .principal { border-left: 0; box-shadow: inset 4px 0 0 var(--acento); }
+  .entorno { border: 0; border-radius: 16px; background: var(--fondo); }
+  .aviso, .pendiente { border-radius: 16px; }
+  .tabla { border-radius: 16px; }
+  .seccion { text-transform: none; letter-spacing: 0; font-size: 14px; font-weight: 600; color: var(--ink); }
+  .grupo-campo label { text-transform: none; letter-spacing: 0; font-size: 13px; font-weight: 500; }
+  .pag input[type=text], .pag input[type=password], .pag input[type=email], .pag select { border-color: #C3C7CF; border-radius: 12px; padding: 9px 12px; font-size: 14px; }
+  .b1, .b2 { border-radius: 20px; padding: 8px 16px; font-weight: 500; }
+  .pq { padding: 6px 14px; }
 </style>
 </head>
 <body>
-<div class="barra">
-  <a href="/">← Portada</a>
-  <span class="yo">{{ usuario }}</span>
-  <a href="/ajustes/salir">Salir</a>
-</div>
+<header class="barra">
+  <a class="apps-btn" href="/" title="Todas las apps" aria-label="Todas las apps"><svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="5" cy="5" r="2"/><circle cx="12" cy="5" r="2"/><circle cx="19" cy="5" r="2"/><circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/><circle cx="5" cy="19" r="2"/><circle cx="12" cy="19" r="2"/><circle cx="19" cy="19" r="2"/></svg></a>
+  <span class="marca"><span class="app-ico" aria-hidden="true">⚙</span>Ajustes</span>
+  <span class="yo"><span class="avatar" aria-hidden="true">{{ (usuario or '?')[:1] }}</span><span class="largo">{{ usuario }}</span></span>
+  <a class="salir" href="/ajustes/salir">Salir</a>
+</header>
 <div class="pag">
 {% if sin_permiso %}
   <h1>Ajustes del servidor</h1>
