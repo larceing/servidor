@@ -32,8 +32,13 @@ body { color: var(--texto); -webkit-font-smoothing: antialiased; }
 .pf-c-form__label, .pf-c-form__label-text, .control-label { font-size: 14px; font-weight: 500; color: var(--suave); }
 .form-group { margin-bottom: 18px; }
 .pf-c-form-control { min-height: 52px; border: 1px solid var(--borde) !important; border-radius: 14px !important;
-  padding: 0 16px !important; font-size: 16px !important; background: #fff; box-shadow: none !important; }
+  padding: 0 16px !important; font-size: 16px !important; background-color: #fff; box-shadow: none !important; }
 .pf-c-form-control:focus { border-color: var(--primario) !important; outline: 2px solid var(--primario); outline-offset: 0; }
+/* Error: borde rojo, sin el icono «!» de PatternFly (se repetía por todo el campo) */
+.pf-c-form-control[aria-invalid=true], .pf-c-form-control.pf-m-error { background-image: none !important;
+  border-color: #B3261E !important; padding-right: 16px !important; }
+.pf-c-form-control[aria-invalid=true]:focus { outline-color: #B3261E; }
+#input-error, .pf-c-form__helper-text.pf-m-error, .kc-feedback-text { color: #B3261E; font-size: 13px; }
 .pf-c-input-group .pf-c-form-control { border-top-right-radius: 0 !important; border-bottom-right-radius: 0 !important; }
 .pf-c-input-group .pf-c-button.pf-m-control { border-radius: 0 14px 14px 0; min-width: 52px; }
 .pf-c-input-group .pf-c-button.pf-m-control::after { border: 1px solid var(--borde); border-left: 0; border-radius: 0 14px 14px 0; }
