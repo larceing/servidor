@@ -137,6 +137,29 @@ class Entrada(Base):
         self.assertIn("server_name www.inventario.ejemplo.com;", pro["dominio-inventario.conf"])
         self.assertIn("return 301 https://inventario.ejemplo.com$request_uri;", pro["dominio-inventario.conf"])
 
+    def test_entrada_fuera_de_buscadores(self):
+        # la entrada de cada entorno (logins, portadas, DEV) no se indexa
+        for ent in S.ENTORNOS:
+            self.assertIn('add_header X-Robots-Tag "noindex, nofollow" always;', S.ficheros_entrada(ent)["default.conf"])
+
+    def test_dominio_propio_se_indexa_salvo_que_lo_pida(self):
+        self.alta()
+        reg = json.loads((self.dir / "registro" / "inventario.json").read_text())
+        reg["dominio"] = "inventario.ejemplo.com"
+        (self.dir / "registro" / "inventario.json").write_text(json.dumps(reg))
+        self.assertNotIn("X-Robots-Tag", S.ficheros_entrada("pro")["dominio-inventario.conf"])
+        self.alta(buscadores=False)
+        reg = json.loads((self.dir / "registro" / "inventario.json").read_text())
+        reg["dominio"] = "inventario.ejemplo.com"
+        (self.dir / "registro" / "inventario.json").write_text(json.dumps(reg))
+        self.assertIn('add_header X-Robots-Tag "noindex, nofollow" always;', S.ficheros_entrada("pro")["dominio-inventario.conf"])
+
+    def test_buscadores_tiene_que_ser_si_o_no(self):
+        with self.assertRaises(S.Error):
+            S.validar_manifiesto({"ruta": "crm", "buscadores": "no"})
+        self.assertNotIn("buscadores", S.validar_manifiesto({"ruta": "crm"}))
+        self.assertIs(S.validar_manifiesto({"ruta": "crm", "buscadores": False})["buscadores"], False)
+
     def test_dominio_con_www_no_se_duplica(self):
         self.assertEqual(S.conf_www("www.ejemplo.com"), "")
         self.assertIn("server_name www.ejemplo.com;", S.conf_www("ejemplo.com"))
