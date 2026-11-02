@@ -82,6 +82,7 @@ En la raíz de su repositorio. Ajustes → *Añadir una aplicación* → `usuari
 | `despliegue.imagen` | (tipo `servidor`) imagen sin versión, p. ej. `ghcr.io/usuario/app` | — |
 | `keycloak.cliente` | su cliente de Keycloak, p. ej. `{ruta}-{entorno}`: se crea si falta y su secret queda en `/opt/apps/servidor/secretos/<cliente>.env` | (tipo `servidor`: `{ruta}-{entorno}`) |
 | `dentro` | la ruta de su app principal (ver abajo): va en `/<principal>/<ruta>/`. También se elige al añadirla | — |
+| `buscadores` | `false`: su dominio propio en PRO manda `X-Robots-Tag: noindex, nofollow` (apps con login). La entrada de DEV y PRO y el dominio de una app principal no se indexan nunca | `true` |
 
 Varias apps en un repositorio: `{"apps": [ {...}, {...} ]}`.
 

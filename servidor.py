@@ -216,6 +216,9 @@ def validar_manifiesto(m: dict, repo: str = "") -> dict:
     icono = str(m.get("icono") or "").strip().lstrip("/")
     if icono and (not CAMINO.match(icono) or ".." in icono or icono.endswith("/")):
         raise Error(f"icono no válido: '{icono}' (un fichero de la app, p. ej. img/logo.png)")
+    buscadores = m.get("buscadores", True)
+    if not isinstance(buscadores, bool):
+        raise Error("buscadores: true (su dominio propio se puede indexar) o false")
     d = m.get("despliegue") or {}
     if not isinstance(d, dict):
         raise Error("despliegue tiene que ser un objeto")
@@ -270,6 +273,8 @@ def validar_manifiesto(m: dict, repo: str = "") -> dict:
         m2["dentro"] = dentro
     if icono:
         m2["icono"] = icono
+    if not buscadores:
+        m2["buscadores"] = False
     return m2
 
 
@@ -438,6 +443,11 @@ CABECERAS = """  proxy_http_version 1.1;
 """
 
 
+# Lo que sirve la entrada (pantallas de login, portadas, apps de DEV y PRO) no
+# es para buscadores. Va en el server: lo heredan las locations sin add_header propio.
+NO_INDEXAR = '  add_header X-Robots-Tag "noindex, nofollow" always;\n'
+
+
 def conf_default(ent: str) -> str:
     """La portada (/) y Ajustes (/ajustes/) van al panel; X-Entorno la pone
     esta entrada (el navegador no puede cambiarla). Cada app, en su ruta."""
@@ -446,7 +456,7 @@ server {{
   listen 80 default_server;
   client_max_body_size 50m;
   resolver 127.0.0.11 valid=10s ipv6=off;
-  error_page 502 503 504 /no-disponible.html;
+{NO_INDEXAR}  error_page 502 503 504 /no-disponible.html;
   location = /no-disponible.html {{ root /etc/nginx/conf.d/html; internal; }}
   location = / {{
     set $panel http://{PANEL}:8000;
@@ -541,7 +551,7 @@ server {{
   server_name {dom};
   client_max_body_size 50m;
   resolver 127.0.0.11 valid=10s ipv6=off;
-  error_page 502 503 504 /no-disponible.html;
+{NO_INDEXAR}  error_page 502 503 504 /no-disponible.html;
   location = /no-disponible.html {{ root /etc/nginx/conf.d/html; internal; }}
 {"".join(partes)}}}
 """.replace("\n  proxy_", "\n    proxy_") + conf_www(dom)
@@ -569,15 +579,17 @@ server {{
 
 
 def conf_dominio(m: dict, dom: str) -> str:
-    """Un dominio propio (solo PRO): la app entera en / de ese dominio."""
+    """Un dominio propio (solo PRO): la app entera en / de ese dominio. Fuera de
+    los buscadores si su manifiesto lo pide ("buscadores": false)."""
     destino = f"{nombre_de(m['contenedor'], m['ruta'], 'pro')}:{m['puerto']}"
+    indexar = "" if m.get("buscadores", True) else NO_INDEXAR
     return f"""# {m['nombre']} en su dominio propio (servidor.py)
 server {{
   listen 80;
   server_name {dom};
   client_max_body_size 50m;
   resolver 127.0.0.11 valid=10s ipv6=off;
-  error_page 502 503 504 /no-disponible.html;
+{indexar}  error_page 502 503 504 /no-disponible.html;
   location = /no-disponible.html {{ root /etc/nginx/conf.d/html; internal; }}
   location / {{
     set $destino {destino};
