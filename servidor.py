@@ -1032,7 +1032,8 @@ def anadir_url_cliente(realm: str, cid: str, url: str) -> None:
 # app-<id>-<entorno> que hereda de la plantilla comun (TEMA_LOGIN) y solo cambia el titulo,
 # el lema, el color y el logo. Si algo falla, se ve la plantilla comun. Con "movil", un
 # cliente publico <cliente>-movil (PKCE) que vuelve a la app por <esquema>:// (en DEV,
-# <esquema>-dev://, para poder tener las dos instaladas).
+# <esquema>-dev://, para poder tener las dos instaladas). El de DEV acepta tambien
+# <esquema>://: la APK de PRO deja a quien administra entrar en DEV sin otra APK.
 
 def nombre_tema_app(ida: str, ent: str) -> str:
     return f"app-{ida.replace('.', '-')}-{ent}"
@@ -1059,17 +1060,19 @@ def ficheros_tema_app(login: dict, logo_url: str = "") -> dict:
     return {"login/theme.properties": props, "login/resources/css/app.css": "\n".join(css) + "\n"}
 
 
-def asegurar_cliente_movil(cliente: str, nombre: str, esquema: str, tema: str = "") -> None:
+def asegurar_cliente_movil(cliente: str, nombre: str, esquema: str, tema: str = "", otros: tuple = ()) -> None:
     """Cliente publico para una app de movil o tablet: codigo con PKCE (S256), sin secret,
-    vuelta a <esquema>://, con los grupos en el token y acceso sin conexion (offline_access)."""
+    vuelta a <esquema>:// (y a los `otros` esquemas), con los grupos en el token y acceso sin
+    conexion (offline_access)."""
     realm = _realm(cfg())
     vuelta = f"{esquema}://*"
+    vueltas = [vuelta] + [f"{o}://*" for o in otros]
     cid = _cliente_id(realm, cliente)
     if not cid:
         cuerpo = {
             "clientId": cliente, "name": nombre, "enabled": True, "publicClient": True,
             "standardFlowEnabled": True, "directAccessGrantsEnabled": False, "implicitFlowEnabled": False,
-            "redirectUris": [vuelta], "webOrigins": [],
+            "redirectUris": vueltas, "webOrigins": [],
             "attributes": {"login_theme": tema or TEMA_LOGIN, "pkce.code.challenge.method": "S256",
                            "post.logout.redirect.uris": vuelta},
             "optionalClientScopes": ["offline_access"],
@@ -1082,7 +1085,7 @@ def asegurar_cliente_movil(cliente: str, nombre: str, esquema: str, tema: str = 
         return
     cli = json.loads(kc("get", f"clients/{cid}", "-r", realm))
     antes = json.dumps(cli, sort_keys=True)
-    cli["redirectUris"] = sorted(set(cli.get("redirectUris") or []) | {vuelta})
+    cli["redirectUris"] = sorted(set(cli.get("redirectUris") or []) | set(vueltas))
     a = cli.setdefault("attributes", {})
     a["pkce.code.challenge.method"] = "S256"
     if tema:
@@ -1149,7 +1152,8 @@ def login_y_movil_de(ida: str, ents=None) -> None:
             poner_tema_cliente(realm, nombre, tema)
         if movil:
             esquema = movil["esquema"] + ("" if ent == "pro" else f"-{ent}")
-            asegurar_cliente_movil(f"{nombre}-movil", f"{m['nombre']} · móvil ({ent.upper()})", esquema, tema)
+            otros = () if ent == "pro" else (movil["esquema"],)
+            asegurar_cliente_movil(f"{nombre}-movil", f"{m['nombre']} · móvil ({ent.upper()})", esquema, tema, otros)
 
 
 # ── Nginx Proxy Manager (dominios propios) ───────────────────────────────────
