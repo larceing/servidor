@@ -82,6 +82,8 @@ En la raíz de su repositorio. Ajustes → *Añadir una aplicación* → `usuari
 | `despliegue.imagen` | (tipo `servidor`) imagen sin versión, p. ej. `ghcr.io/usuario/app` | — |
 | `keycloak.cliente` | su cliente de Keycloak, p. ej. `{ruta}-{entorno}`: se crea si falta y su secret queda en `/opt/apps/servidor/secretos/<cliente>.env` | (tipo `servidor`: `{ruta}-{entorno}`) |
 | `dentro` | la ruta de su app principal (ver abajo): va en `/<principal>/<ruta>/`. También se elige al añadirla | — |
+| `login` | su propia página de login: `{"titulo", "lema", "color", "logo"}` (todo opcional; `logo` es un fichero de la app que se sirve sin sesión, como `icono`). El servidor genera el tema `app-<id>-<entorno>` sobre la plantilla común y se lo pone a su cliente. Ver «Login propio y app de móvil» | la plantilla común |
+| `movil` | su app de móvil o tablet: `{"esquema": "brokkrcitas"}`. Crea el cliente público `<cliente>-movil` (PKCE, sin secret) que vuelve a `<esquema>://` en PRO y a `<esquema>-dev://` en DEV | — |
 | `buscadores` | `false`: su dominio propio en PRO manda `X-Robots-Tag: noindex, nofollow` (apps con login). La entrada de DEV y PRO y el dominio de una app principal no se indexan nunca | `true` |
 
 Varias apps en un repositorio: `{"apps": [ {...}, {...} ]}`.
@@ -93,6 +95,27 @@ Varias apps en un repositorio: `{"apps": [ {...}, {...} ]}`.
 - Que construya sus direcciones con `X-Forwarded-Prefix` y el `Host` de la petición: así
   vale igual en `pro.<dominio>/ruta/` que en un dominio propio.
 - Su login: Keycloak, grupo `<ENTORNO>/<grupo>` para entrar, `IT` administra todo.
+
+### Login propio y app de móvil
+
+Todas las apps siguen entrando con el mismo Keycloak (realm `general`): la misma persona
+y la misma contraseña para todas, y si ya ha entrado en una, en las demás entra sin verlo.
+Lo que cambia es la **cara** del login:
+
+- Con `login` en el manifiesto, el agente escribe `/opt/apps/servidor/temas/app-<id>-<ent>/`
+  (hereda de `arcedatalab` y solo añade `css/app.css`: título, lema, color y logo), lo copia
+  a Keycloak y se lo pone a su cliente de ese entorno. Si el tema falla, se ve la plantilla
+  común. Se rehace al dar de alta la app, al cambiar su grupo y al arrancar el agente.
+  Keycloak guarda en caché los temas: un tema **nuevo** se ve al momento; un cambio en uno
+  que ya existía puede necesitar reiniciar Keycloak.
+- Con `movil`, el cliente `<cliente>-movil` es público (la APK no guarda secretos), con
+  código y PKCE `S256`, sin contraseña directa, con los grupos en el token y el permiso
+  opcional `offline_access` para que la tablet siga dentro sin red. La APK abre el login en
+  el navegador del móvil (en Expo, `expo-auth-session`), la persona entra y el navegador
+  la devuelve a `<esquema>://...` ya con la sesión. En DEV el esquema es `<esquema>-dev`,
+  para poder tener las dos APK instaladas.
+- El registro libre en Keycloak sigue cerrado: las cuentas las crea IT o llegan por
+  invitación desde la propia app.
 
 ### Apps principales (varias apps juntas, p. ej. las de un cliente)
 
