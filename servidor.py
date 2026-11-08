@@ -67,6 +67,8 @@ NOMBRE = re.compile(r"^[\w .()-]{1,60}\Z")
 GRUPO = re.compile(r"^[A-Za-z0-9][A-Za-z0-9 _.-]{0,40}\Z")
 CONTENEDOR = re.compile(r"^[a-z0-9][a-z0-9_.-]{0,62}\Z")
 CAMINO = re.compile(r"^[A-Za-z0-9._/-]{0,100}\Z")
+COLOR = re.compile(r"^#[0-9A-Fa-f]{6}\Z")
+ESQUEMA = re.compile(r"^[a-z][a-z0-9.+-]{2,40}\Z")   # esquema de vuelta de una app de movil
 REPO = re.compile(r"^[\w.-]{1,100}/[\w.-]{1,100}\Z")
 WORKFLOW = re.compile(r"^[\w.-]{1,100}\.ya?ml\Z")
 RAMA = re.compile(r"^[\w./-]{1,100}\Z")
@@ -260,6 +262,36 @@ def validar_manifiesto(m: dict, repo: str = "") -> dict:
         raise Error(f"cliente de Keycloak no válido: '{cliente}' (p. ej. {ruta}-{{entorno}})")
     if tipo == "servidor" and not cliente:
         cliente = f"{dentro}-{{ruta}}-{{entorno}}" if dentro else "{ruta}-{entorno}"
+    # su propia pagina de login (un tema de Keycloak que genera el servidor) y su app de movil
+    lg = m.get("login") or {}
+    if not isinstance(lg, dict):
+        raise Error("login tiene que ser un objeto: titulo, lema, color y logo")
+    login: dict = {}
+    if lg:
+        login["titulo"] = str(lg.get("titulo") or nombre).strip()
+        if not NOMBRE.match(login["titulo"]):
+            raise Error(f"login.titulo no válido: '{login['titulo']}'")
+        lema = str(lg.get("lema") or "").strip()
+        if lema and not re.match(r"^[\w .,()¿?¡!-]{1,80}\Z", lema):
+            raise Error("login.lema no válido (letras, números y .,()¿?¡!-; hasta 80)")
+        color = str(lg.get("color") or "").strip()
+        if color and not COLOR.match(color):
+            raise Error(f"login.color no válido: '{color}' (p. ej. #1D4F7A)")
+        logo = str(lg.get("logo") or "").strip().lstrip("/")
+        if logo and (not CAMINO.match(logo) or ".." in logo or logo.endswith("/")):
+            raise Error(f"login.logo no válido: '{logo}' (un fichero de la app, p. ej. img/logo.svg)")
+        login.update({k: v for k, v in (("lema", lema), ("color", color), ("logo", logo)) if v})
+    mv = m.get("movil") or {}
+    if not isinstance(mv, dict):
+        raise Error("movil tiene que ser un objeto: esquema")
+    movil: dict = {}
+    if mv:
+        esquema = str(mv.get("esquema") or "").strip().lower()
+        if not ESQUEMA.match(esquema):
+            raise Error(f"movil.esquema no válido: '{esquema}' (p. ej. brokkrcitas)")
+        movil["esquema"] = esquema
+    if (login or movil) and not cliente:
+        raise Error("login y movil necesitan un cliente de Keycloak (keycloak.cliente)")
     if principal and tipo != "ninguno":
         raise Error("una app principal no se despliega: se despliegan sus subapps")
     if dentro:
@@ -275,6 +307,10 @@ def validar_manifiesto(m: dict, repo: str = "") -> dict:
         m2["icono"] = icono
     if not buscadores:
         m2["buscadores"] = False
+    if login:
+        m2["login"] = login
+    if movil:
+        m2["movil"] = movil
     return m2
 
 
@@ -982,6 +1018,131 @@ def anadir_url_cliente(realm: str, cid: str, url: str) -> None:
         log(f"Keycloak: {url} admitida en {cli.get('clientId')}")
 
 
+# ── login propio de cada app y cliente de movil ──────────────────────────────
+# Una app con "login" en su manifiesto tiene su pagina de login: un tema de Keycloak
+# app-<id>-<entorno> que hereda de la plantilla comun (TEMA_LOGIN) y solo cambia el titulo,
+# el lema, el color y el logo. Si algo falla, se ve la plantilla comun. Con "movil", un
+# cliente publico <cliente>-movil (PKCE) que vuelve a la app por <esquema>:// (en DEV,
+# <esquema>-dev://, para poder tener las dos instaladas).
+
+def nombre_tema_app(ida: str, ent: str) -> str:
+    return f"app-{ida.replace('.', '-')}-{ent}"
+
+
+def _oscurecer(color: str, f: float = 0.78) -> str:
+    r, g, b = (int(color[i:i + 2], 16) for i in (1, 3, 5))
+    return "#" + "".join(f"{max(0, min(255, int(x * f))):02X}" for x in (r, g, b))
+
+
+def ficheros_tema_app(login: dict, logo_url: str = "") -> dict:
+    """Los ficheros del tema (camino relativo -> texto). Los textos ya vienen validados."""
+    css = ["/* Generado por servidor.py desde el servidor.json de la app: no editar. */"]
+    color = login.get("color", "")
+    if color:
+        css.append(f":root {{ --primario: {color}; --primario-2: {_oscurecer(color)}; }}")
+    titulo = login.get("titulo", "")
+    fondo = f' background-image: url("{logo_url}");' if logo_url else ""
+    css.append(f'#kc-header-wrapper::before {{ content: "{titulo}";{fondo} }}')
+    if login.get("lema"):
+        css.append(f'@media (min-width: 900px) {{ #kc-header-wrapper::after {{ content: "{login["lema"]}"; }} }}')
+    props = (f"parent={TEMA_LOGIN}\nimport=common/keycloak\n"
+             "styles=css/login.css css/arcedatalab.css css/app.css\n")
+    return {"login/theme.properties": props, "login/resources/css/app.css": "\n".join(css) + "\n"}
+
+
+def asegurar_cliente_movil(cliente: str, nombre: str, esquema: str, tema: str = "") -> None:
+    """Cliente publico para una app de movil o tablet: codigo con PKCE (S256), sin secret,
+    vuelta a <esquema>://, con los grupos en el token y acceso sin conexion (offline_access)."""
+    realm = _realm(cfg())
+    vuelta = f"{esquema}://*"
+    cid = _cliente_id(realm, cliente)
+    if not cid:
+        cuerpo = {
+            "clientId": cliente, "name": nombre, "enabled": True, "publicClient": True,
+            "standardFlowEnabled": True, "directAccessGrantsEnabled": False, "implicitFlowEnabled": False,
+            "redirectUris": [vuelta], "webOrigins": [],
+            "attributes": {"login_theme": tema or TEMA_LOGIN, "pkce.code.challenge.method": "S256",
+                           "post.logout.redirect.uris": vuelta},
+            "optionalClientScopes": ["offline_access"],
+            "protocolMappers": [{"name": "groups", "protocol": "openid-connect",
+                                 "protocolMapper": "oidc-group-membership-mapper",
+                                 "config": {"claim.name": "groups", "full.path": "true", "userinfo.token.claim": "true",
+                                            "id.token.claim": "true", "access.token.claim": "true"}}]}
+        kc("create", "clients", "-r", realm, "-f", "-", entrada=json.dumps(cuerpo))
+        log(f"Keycloak: cliente de móvil {cliente} creado ({vuelta})")
+        return
+    cli = json.loads(kc("get", f"clients/{cid}", "-r", realm))
+    antes = json.dumps(cli, sort_keys=True)
+    cli["redirectUris"] = sorted(set(cli.get("redirectUris") or []) | {vuelta})
+    a = cli.setdefault("attributes", {})
+    a["pkce.code.challenge.method"] = "S256"
+    if tema:
+        a["login_theme"] = tema
+    if json.dumps(cli, sort_keys=True) != antes:
+        kc("update", f"clients/{cid}", "-r", realm, "-f", "-", entrada=json.dumps(cli))
+        log(f"Keycloak: cliente de móvil {cliente} al día")
+
+
+def poner_tema_cliente(realm: str, cliente: str, tema: str) -> None:
+    """Pone ese login al cliente (lo pide la app en su manifiesto, asi que se fuerza)."""
+    cid = _cliente_id(realm, cliente)
+    if not cid:
+        return
+    cli = json.loads(kc("get", f"clients/{cid}", "-r", realm))
+    if (cli.get("attributes") or {}).get("login_theme") != tema:
+        cli.setdefault("attributes", {})["login_theme"] = tema
+        kc("update", f"clients/{cid}", "-r", realm, "-f", "-", entrada=json.dumps(cli))
+        log(f"Keycloak: {cliente} con el login {tema}")
+
+
+def copiar_tema(nombre: str, ficheros: dict) -> bool:
+    """Escribe el tema en DIR/temas/<nombre> y lo copia a Keycloak si ha cambiado."""
+    c = cfg()
+    carpeta = DIR / "temas" / nombre
+    for rel, texto in ficheros.items():
+        f = carpeta / rel
+        f.parent.mkdir(parents=True, exist_ok=True)
+        f.write_text(texto, encoding="utf-8")
+    huella = _huella_tema(carpeta)
+    marca = carpeta / ".huella"
+    if marca.exists() and marca.read_text().strip() == huella:
+        return False
+    cont, destino = c["KEYCLOAK_CONTENEDOR"], f"/opt/keycloak/themes/{nombre}"
+    run(["docker", "exec", "-u", "0", cont, "mkdir", "-p", destino], timeout=60)
+    run(["docker", "cp", f"{carpeta}/.", f"{cont}:{destino}"], timeout=120)
+    run(["docker", "exec", "-u", "0", cont, "chmod", "-R", "a+rX", destino], timeout=60)
+    marca.write_text(huella + "\n")
+    log(f"Keycloak: login {nombre} copiado")
+    return True
+
+
+def login_y_movil_de(ida: str, ents=None) -> None:
+    """Su login propio y su cliente de movil en cada entorno, si los pide su manifiesto."""
+    c = cfg()
+    reg = registro()
+    datos = reg.get(ida)
+    if not datos:
+        return
+    m = datos["manifiesto"]
+    cliente = (m.get("keycloak") or {}).get("cliente", "")
+    login, movil = m.get("login") or {}, m.get("movil") or {}
+    if not cliente or not (login or movil):
+        return
+    realm = _realm(c)
+    for ent in ents or ENTORNOS:
+        nombre = nombre_de(cliente, m["ruta"], ent)
+        tema = ""
+        if login:
+            host = en_su_dominio(reg, datos, ent) or dominio(c, ent)
+            logo = f"https://{host}{camino(reg, datos, ent).rstrip('/')}/{login['logo']}" if host and login.get("logo") else ""
+            tema = nombre_tema_app(ida, ent)
+            copiar_tema(tema, ficheros_tema_app(login, logo))
+            poner_tema_cliente(realm, nombre, tema)
+        if movil:
+            esquema = movil["esquema"] + ("" if ent == "pro" else f"-{ent}")
+            asegurar_cliente_movil(f"{nombre}-movil", f"{m['nombre']} · móvil ({ent.upper()})", esquema, tema)
+
+
 # ── Nginx Proxy Manager (dominios propios) ───────────────────────────────────
 
 def _npm_url() -> str:
@@ -1318,6 +1479,7 @@ def _keycloak_de(ida: str) -> None:
                 f.parent.mkdir(mode=0o700, exist_ok=True)
                 poner_env(f, {"KEYCLOAK_CLIENT_ID": nombre, "KEYCLOAK_CLIENT_SECRET": secreto})
                 log(f"secret de {nombre} guardado en {f}")
+        login_y_movil_de(ida)
     except Error as e:
         log(f"aviso: Keycloak: {e}")
 
@@ -1863,6 +2025,8 @@ def agente() -> None:
     log(f"agente en marcha (versión {version_actual()})")
     try:
         tema_login()
+        for ida in registro():
+            login_y_movil_de(ida)
     except Error as e:
         log(f"aviso: login de Keycloak: {e}")
     aplicar_todo()

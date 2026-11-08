@@ -567,6 +567,92 @@ class TemaLogin(unittest.TestCase):
         self.assertIn("css/login.css", props)
 
 
+class LoginYMovil(Base):
+    """Login propio de cada app (tema generado) y cliente público para su APK."""
+
+    def test_manifiesto_con_login_y_movil(self):
+        m = S.validar_manifiesto({"ruta": "citas", "nombre": "Brokkr Citas",
+                                  "despliegue": {"tipo": "servidor", "imagen": "ghcr.io/a/citas"},
+                                  "login": {"lema": "Tus citas, con o sin red.", "color": "#0F766E", "logo": "/img/logo.svg"},
+                                  "movil": {"esquema": "BrokkrCitas"}})
+        self.assertEqual(m["login"], {"titulo": "Brokkr Citas", "lema": "Tus citas, con o sin red.",
+                                      "color": "#0F766E", "logo": "img/logo.svg"})
+        self.assertEqual(m["movil"], {"esquema": "brokkrcitas"})
+        sin = S.validar_manifiesto({"ruta": "app"})
+        self.assertNotIn("login", sin)
+        self.assertNotIn("movil", sin)
+
+    def test_rechaza_login_o_movil_que_no_cuadran(self):
+        base = {"ruta": "app", "despliegue": {"tipo": "servidor", "imagen": "ghcr.io/a/b"}}
+        malos = [{"login": {"titulo": 'x"; }'}}, {"login": {"color": "red"}}, {"login": {"logo": "../x.svg"}},
+                 {"login": {"lema": "a\"b"}}, {"login": "si"}, {"movil": {"esquema": "x"}},
+                 {"movil": {"esquema": "a b"}}, {"movil": {}  or {"esquema": ""}}]
+        for extra in malos:
+            with self.assertRaises(S.Error, msg=extra):
+                S.validar_manifiesto({**base, **extra})
+        with self.assertRaises(S.Error):   # sin cliente de Keycloak no hay login propio
+            S.validar_manifiesto({"ruta": "app", "despliegue": {"workflow": "a.yml"}, "login": {"color": "#000000"}}, "a/b")
+
+    def test_tema_generado_hereda_de_la_plantilla_comun(self):
+        f = S.ficheros_tema_app({"titulo": "Brokkr Citas", "lema": "Hola", "color": "#336699"},
+                                "https://dev.ejemplo.com/citas/img/logo.svg")
+        self.assertIn(f"parent={S.TEMA_LOGIN}", f["login/theme.properties"])
+        self.assertIn("css/app.css", f["login/theme.properties"])
+        css = f["login/resources/css/app.css"]
+        self.assertIn('content: "Brokkr Citas"', css)
+        self.assertIn("--primario: #336699", css)
+        self.assertIn("--primario-2: #27", css)
+        self.assertIn('url("https://dev.ejemplo.com/citas/img/logo.svg")', css)
+        self.assertIn('content: "Hola"', css)
+        self.assertEqual(S.nombre_tema_app("spsil.tareas", "dev"), "app-spsil-tareas-dev")
+
+    def _kc_vacio(self):
+        creados, actualizados = [], []
+
+        def kc(*args, entrada=None):
+            if args[:2] == ("get", "clients"):
+                return ""
+            if args[0] == "create":
+                creados.append(json.loads(entrada))
+            if args[0] == "update":
+                actualizados.append(json.loads(entrada))
+            return ""
+        return kc, creados, actualizados
+
+    def test_cliente_movil_publico_con_pkce(self):
+        kc, creados, _ = self._kc_vacio()
+        with mock.patch.object(S, "kc", side_effect=kc), mock.patch.object(S, "log"):
+            S.asegurar_cliente_movil("citas-dev-movil", "Citas", "brokkrcitas-dev", "app-citas-dev")
+        c = creados[0]
+        self.assertTrue(c["publicClient"])
+        self.assertFalse(c["directAccessGrantsEnabled"])
+        self.assertEqual(c["redirectUris"], ["brokkrcitas-dev://*"])
+        self.assertEqual(c["attributes"]["pkce.code.challenge.method"], "S256")
+        self.assertEqual(c["attributes"]["login_theme"], "app-citas-dev")
+        self.assertIn("offline_access", c["optionalClientScopes"])
+
+    def test_login_y_movil_de_una_app(self):
+        self.alta(ruta="citas", nombre="Citas", login={"color": "#0F766E", "logo": "img/logo.svg"},
+                  movil={"esquema": "brokkrcitas"})
+        copiados, temas, moviles = [], [], []
+        with mock.patch.object(S, "copiar_tema", side_effect=lambda n, f: copiados.append((n, f))), \
+                mock.patch.object(S, "poner_tema_cliente", side_effect=lambda r, c, t: temas.append((c, t))), \
+                mock.patch.object(S, "asegurar_cliente_movil", side_effect=lambda c, n, e, t: moviles.append((c, e, t))):
+            S.login_y_movil_de("citas")
+        self.assertEqual([n for n, _ in copiados], ["app-citas-dev", "app-citas-pro"])
+        self.assertIn("https://dev.ejemplo.com/citas/img/logo.svg", copiados[0][1]["login/resources/css/app.css"])
+        self.assertEqual(temas, [("citas-dev", "app-citas-dev"), ("citas-pro", "app-citas-pro")])
+        self.assertEqual(moviles, [("citas-dev-movil", "brokkrcitas-dev", "app-citas-dev"),
+                                   ("citas-pro-movil", "brokkrcitas", "app-citas-pro")])
+
+    def test_sin_login_ni_movil_no_toca_keycloak(self):
+        self.alta()
+        with mock.patch.object(S, "copiar_tema") as ct, mock.patch.object(S, "asegurar_cliente_movil") as cm:
+            S.login_y_movil_de("inventario")
+        ct.assert_not_called()
+        cm.assert_not_called()
+
+
 class KcEntrar(unittest.TestCase):
     """kcadm entra con la cuenta de servicio si está configurada (el usuario admin puede tener 2FA)."""
 
