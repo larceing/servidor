@@ -677,3 +677,34 @@ class KcEntrar(unittest.TestCase):
         [(cmd, entrada)] = self._llamadas({})
         self.assertIn("KC_BOOTSTRAP_ADMIN_USERNAME", cmd[-1])
         self.assertIsNone(entrada)
+
+
+class KcSesionCaducada(unittest.TestCase):
+    """Con la cuenta de servicio la sesión de kcadm caduca en 1 min: kc entra otra vez y repite."""
+
+    def _kc(self, fallos):
+        llamadas = []
+
+        def run(cmd, entrada=None, ok=(0,), timeout=600):
+            llamadas.append(cmd)
+            if fallos:
+                raise fallos.pop(0)
+            return "ok"
+        with mock.patch.object(S, "cfg", return_value={"KEYCLOAK_CONTENEDOR": "keycloak"}), \
+                mock.patch.object(S, "run", side_effect=run), mock.patch.object(S, "kc_entrar") as entrar:
+            return S.kc("get", "groups"), llamadas, entrar
+
+    def test_si_caduca_entra_otra_vez_y_repite(self):
+        salida, llamadas, entrar = self._kc([S.Error("falló: docker exec...\nSession has expired. Login again")])
+        self.assertEqual(salida, "ok")
+        self.assertEqual(len(llamadas), 2)
+        entrar.assert_called_once()
+
+    def test_otro_error_no_se_repite(self):
+        with self.assertRaises(S.Error):
+            self._kc([S.Error("falló: docker exec...\nResource not found")])
+
+    def test_solo_repite_una_vez(self):
+        caducada = S.Error("Session has expired")
+        with self.assertRaises(S.Error):
+            self._kc([caducada, caducada])

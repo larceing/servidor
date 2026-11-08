@@ -853,8 +853,17 @@ def _realm(c: dict) -> str:
 
 
 def kc(*args, entrada: str | None = None) -> str:
-    return run(["docker", "exec", "-i", cfg()["KEYCLOAK_CONTENEDOR"], "/opt/keycloak/bin/kcadm.sh", *args],
-               entrada=entrada, timeout=60)
+    """kcadm dentro del contenedor. Con la cuenta de servicio no hay refresh token y la
+    sesion caduca con el access token (1 min por defecto): si caduca, entra otra vez y
+    repite una sola vez."""
+    cmd = ["docker", "exec", "-i", cfg()["KEYCLOAK_CONTENEDOR"], "/opt/keycloak/bin/kcadm.sh", *args]
+    try:
+        return run(cmd, entrada=entrada, timeout=60)
+    except Error as e:
+        if "Session has expired" not in str(e):
+            raise
+    kc_entrar()
+    return run(cmd, entrada=entrada, timeout=60)
 
 
 def kc_entrar() -> None:
