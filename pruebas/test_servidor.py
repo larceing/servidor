@@ -622,11 +622,11 @@ class LoginYMovil(Base):
     def test_cliente_movil_publico_con_pkce(self):
         kc, creados, _ = self._kc_vacio()
         with mock.patch.object(S, "kc", side_effect=kc), mock.patch.object(S, "log"):
-            S.asegurar_cliente_movil("citas-dev-movil", "Citas", "brokkrcitas-dev", "app-citas-dev")
+            S.asegurar_cliente_movil("citas-dev-movil", "Citas", "brokkrcitas-dev", "app-citas-dev", ("brokkrcitas",))
         c = creados[0]
         self.assertTrue(c["publicClient"])
         self.assertFalse(c["directAccessGrantsEnabled"])
-        self.assertEqual(c["redirectUris"], ["brokkrcitas-dev://*"])
+        self.assertEqual(c["redirectUris"], ["brokkrcitas-dev://*", "brokkrcitas://*"])
         self.assertEqual(c["attributes"]["pkce.code.challenge.method"], "S256")
         self.assertEqual(c["attributes"]["login_theme"], "app-citas-dev")
         self.assertIn("offline_access", c["optionalClientScopes"])
@@ -637,13 +637,14 @@ class LoginYMovil(Base):
         copiados, temas, moviles = [], [], []
         with mock.patch.object(S, "copiar_tema", side_effect=lambda n, f: copiados.append((n, f))), \
                 mock.patch.object(S, "poner_tema_cliente", side_effect=lambda r, c, t: temas.append((c, t))), \
-                mock.patch.object(S, "asegurar_cliente_movil", side_effect=lambda c, n, e, t: moviles.append((c, e, t))):
+                mock.patch.object(S, "asegurar_cliente_movil", side_effect=lambda c, n, e, t, o=(): moviles.append((c, e, t, o))):
             S.login_y_movil_de("citas")
         self.assertEqual([n for n, _ in copiados], ["app-citas-dev", "app-citas-pro"])
         self.assertIn("https://dev.ejemplo.com/citas/img/logo.svg", copiados[0][1]["login/resources/css/app.css"])
         self.assertEqual(temas, [("citas-dev", "app-citas-dev"), ("citas-pro", "app-citas-pro")])
-        self.assertEqual(moviles, [("citas-dev-movil", "brokkrcitas-dev", "app-citas-dev"),
-                                   ("citas-pro-movil", "brokkrcitas", "app-citas-pro")])
+        # El de DEV acepta también la vuelta de la APK de PRO (quien administra entra en DEV con ella).
+        self.assertEqual(moviles, [("citas-dev-movil", "brokkrcitas-dev", "app-citas-dev", ("brokkrcitas",)),
+                                   ("citas-pro-movil", "brokkrcitas", "app-citas-pro", ())])
 
     def test_sin_login_ni_movil_no_toca_keycloak(self):
         self.alta()
