@@ -1255,7 +1255,10 @@ def npm_apuntar(dom: str, host: str, puerto: int) -> dict:
     return antes
 
 
-NPM_NO_INDEXAR = 'add_header X-Robots-Tag "noindex, nofollow" always;'
+# more_set_headers (OpenResty, que es lo que lleva NPM) y no add_header: NPM pone su propio
+# add_header (X-Served-By) en cada location, y en nginx eso anula los add_header del server.
+NPM_NO_INDEXAR = 'more_set_headers "X-Robots-Tag: noindex, nofollow";'
+NPM_NO_INDEXAR_VIEJO = 'add_header X-Robots-Tag "noindex, nofollow" always;'   # el de #27, que no llegaba
 
 
 def npm_no_indexar_internos() -> int:
@@ -1269,11 +1272,19 @@ def npm_no_indexar_internos() -> int:
     hechos = 0
     for h in _npm("GET", "/api/nginx/proxy-hosts", token=token):
         doms = h.get("domain_names") or []
-        extra = h.get("advanced_config") or ""
-        if not doms or not all(es_interno(c, d) for d in doms) or "X-Robots-Tag" in extra:
+        antes = h.get("advanced_config") or ""
+        if not doms or not all(es_interno(c, d) for d in doms) or NPM_NO_INDEXAR in antes:
+            continue
+        extra = "\n".join(l for l in antes.splitlines() if l.strip() != NPM_NO_INDEXAR_VIEJO)
+        if "X-Robots-Tag" in extra:   # ya lo resuelve a su manera: no se toca
             continue
         nuevo = (extra.rstrip("\n") + "\n" if extra.strip() else "") + NPM_NO_INDEXAR
-        _npm("PUT", f"/api/nginx/proxy-hosts/{int(h['id'])}", {"advanced_config": nuevo}, token=token)
+        r = _npm("PUT", f"/api/nginx/proxy-hosts/{int(h['id'])}", {"advanced_config": nuevo}, token=token) or {}
+        if (r.get("meta") or {}).get("nginx_online") is False:
+            # NPM no acepta la config (deja el host caído): se vuelve a la de antes y no se sigue
+            _npm("PUT", f"/api/nginx/proxy-hosts/{int(h['id'])}", {"advanced_config": antes}, token=token)
+            raise Error(f"{', '.join(doms)}: Nginx Proxy Manager no acepta la cabecera "
+                        f"({str((r.get('meta') or {}).get('nginx_err') or '')[:200]}); vuelto a lo de antes")
         log(f"{', '.join(doms)}: fuera de los buscadores (X-Robots-Tag en Nginx Proxy Manager)")
         hechos += 1
     log(f"Nginx Proxy Manager: {hechos} host(s) de {dominio_interno(c)} puestos fuera de los buscadores")

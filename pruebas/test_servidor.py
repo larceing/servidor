@@ -207,11 +207,30 @@ class Entrada(Base):
         self.assertFalse(S.es_interno(S.cfg(), "arcedatalab.com"))
         self.assertFalse(S.es_interno(S.cfg(), "otroejemplo.com"))
 
+    def test_npm_noindex_vuelve_atras_si_npm_lo_rechaza(self):
+        hosts = [{"id": 1, "domain_names": ["n8n.ejemplo.com"], "advanced_config": "x;"},
+                 {"id": 2, "domain_names": ["users.ejemplo.com"], "advanced_config": ""}]
+        puestos = []
+
+        def falso(metodo, ruta, datos=None, token=""):
+            if metodo == "GET":
+                return hosts
+            puestos.append((ruta, datos["advanced_config"]))
+            return {"meta": {"nginx_online": False, "nginx_err": "unknown directive"}}
+        with mock.patch.object(S, "_npm", side_effect=falso), mock.patch.object(S, "npm_token", return_value="t"):
+            with self.assertRaises(S.Error):
+                S.npm_no_indexar_internos()
+        # el primero se prueba, se devuelve a como estaba y el segundo no se toca
+        self.assertEqual([r for r, _ in puestos], ["/api/nginx/proxy-hosts/1", "/api/nginx/proxy-hosts/1"])
+        self.assertEqual(puestos[-1][1], "x;")
+
     def test_npm_noindex_solo_en_hosts_internos(self):
         hosts = [
             {"id": 1, "domain_names": ["users.ejemplo.com"], "advanced_config": "proxy_buffer_size 128k;"},
             {"id": 2, "domain_names": ["web.otro.com", "www.web.otro.com"], "advanced_config": ""},
-            {"id": 3, "domain_names": ["demo.ejemplo.com"], "advanced_config": 'add_header X-Robots-Tag "noindex, nofollow" always;'},
+            {"id": 3, "domain_names": ["demo.ejemplo.com"], "advanced_config": 'more_set_headers "X-Robots-Tag: noindex, nofollow";'},
+            {"id": 5, "domain_names": ["citas.ejemplo.com"], "advanced_config": 'add_header X-Robots-Tag "noindex, nofollow" always;'},
+            {"id": 6, "domain_names": ["otra.ejemplo.com"], "advanced_config": 'location / { add_header X-Robots-Tag none; }'},
             {"id": 4, "domain_names": ["n8n.ejemplo.com"], "advanced_config": None},
         ]
         puestos = {}
@@ -222,12 +241,13 @@ class Entrada(Base):
             puestos[ruta] = datos
             return {}
         with mock.patch.object(S, "_npm", side_effect=falso), mock.patch.object(S, "npm_token", return_value="t"):
-            self.assertEqual(S.npm_no_indexar_internos(), 2)
-        self.assertEqual(sorted(puestos), ["/api/nginx/proxy-hosts/1", "/api/nginx/proxy-hosts/4"])
-        self.assertEqual(puestos["/api/nginx/proxy-hosts/1"]["advanced_config"],
-                         'proxy_buffer_size 128k;\nadd_header X-Robots-Tag "noindex, nofollow" always;')
-        self.assertEqual(puestos["/api/nginx/proxy-hosts/4"]["advanced_config"],
-                         'add_header X-Robots-Tag "noindex, nofollow" always;')
+            self.assertEqual(S.npm_no_indexar_internos(), 3)
+        self.assertEqual(sorted(puestos), ["/api/nginx/proxy-hosts/1", "/api/nginx/proxy-hosts/4", "/api/nginx/proxy-hosts/5"])
+        mas = 'more_set_headers "X-Robots-Tag: noindex, nofollow";'
+        self.assertEqual(puestos["/api/nginx/proxy-hosts/1"]["advanced_config"], "proxy_buffer_size 128k;\n" + mas)
+        self.assertEqual(puestos["/api/nginx/proxy-hosts/4"]["advanced_config"], mas)
+        # el add_header de antes (que NPM anulaba) se cambia por more_set_headers
+        self.assertEqual(puestos["/api/nginx/proxy-hosts/5"]["advanced_config"], mas)
 
     def test_buscadores_tiene_que_ser_si_o_no(self):
         with self.assertRaises(S.Error):
