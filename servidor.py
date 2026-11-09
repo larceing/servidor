@@ -1276,6 +1276,7 @@ def npm_no_indexar_internos() -> int:
         _npm("PUT", f"/api/nginx/proxy-hosts/{int(h['id'])}", {"advanced_config": nuevo}, token=token)
         log(f"{', '.join(doms)}: fuera de los buscadores (X-Robots-Tag en Nginx Proxy Manager)")
         hechos += 1
+    log(f"Nginx Proxy Manager: {hechos} host(s) de {dominio_interno(c)} puestos fuera de los buscadores")
     return hechos
 
 
@@ -1751,6 +1752,10 @@ def sincronizar_dominio(ida: str, primera: bool = False) -> dict:
             aplicar_entrada("pro")
         guardar_registro(m, datos.get("repo", ""), datos.get("origen", "panel"), npm_antes=antes)
         log(f"{dom} iba a {antes['host']}:{antes['puerto']} (no se toca; «Quitar su dominio» vuelve ahí)")
+    try:
+        npm_no_indexar_internos()
+    except Error as e:
+        log(f"aviso: noindex en Nginx Proxy Manager: {e}")
     log("4/4 Keycloak")
     try:
         kc_entrar()
