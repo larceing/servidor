@@ -631,6 +631,33 @@ class LoginYMovil(Base):
         self.assertEqual(c["attributes"]["login_theme"], "app-citas-dev")
         self.assertIn("offline_access", c["optionalClientScopes"])
 
+    def test_cliente_movil_existente_recibe_sus_alcances(self):
+        llamadas = []
+
+        def kc(*args, entrada=None):
+            if args[:2] == ("get", "clients"):
+                return "id\nabc"
+            if args[:2] == ("get", "client-scopes"):
+                return json.dumps([{"id": "p1", "name": "profile"}, {"id": "e1", "name": "email"},
+                                   {"id": "o1", "name": "offline_access"}, {"id": "r1", "name": "roles"}])
+            if args[:2] == ("get", "clients/abc/default-client-scopes"):
+                return json.dumps([{"id": "r1", "name": "roles"}])
+            if args[:2] == ("get", "clients/abc/optional-client-scopes"):
+                return "[]"
+            if args[:2] == ("get", "clients/abc"):
+                return json.dumps({"redirectUris": ["brokkrcitas-dev://*"],
+                                   "attributes": {"pkce.code.challenge.method": "S256"}})
+            llamadas.append(args)
+            return ""
+        with mock.patch.object(S, "kc", side_effect=kc), mock.patch.object(S, "_cliente_id", return_value="abc"), \
+                mock.patch.object(S, "log"):
+            S.asegurar_cliente_movil("citas-dev-movil", "Citas", "brokkrcitas-dev")
+        rutas = [a[1] for a in llamadas if a[0] == "update"]
+        self.assertIn("clients/abc/default-client-scopes/p1", rutas)
+        self.assertIn("clients/abc/default-client-scopes/e1", rutas)
+        self.assertIn("clients/abc/optional-client-scopes/o1", rutas)
+        self.assertNotIn("clients/abc/default-client-scopes/r1", rutas)
+
     def test_login_y_movil_de_una_app(self):
         self.alta(ruta="citas", nombre="Citas", login={"color": "#0F766E", "logo": "img/logo.svg"},
                   movil={"esquema": "brokkrcitas"})
