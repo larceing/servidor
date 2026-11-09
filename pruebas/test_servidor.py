@@ -70,6 +70,30 @@ class Memoria(Base):
         self.assertEqual(S.registro()["inventario"]["manifiesto"]["despliegue"]["memoria"], 1024)
         self.assertEqual(S.registro()["inventario"]["repo"], "yo/inventario")
 
+    def test_desplegar_sin_secret_lo_pide_a_keycloak_antes(self):
+        self.alta(keycloak={"cliente": "{ruta}-{entorno}"})
+        pedidos = []
+
+        def kc_de(ida):
+            pedidos.append(ida)
+            S.poner_env(self.dir / "secretos" / "inventario-pro.env", {"KEYCLOAK_CLIENT_SECRET": "s3"})
+        (self.dir / "secretos").mkdir(exist_ok=True)
+        ok = mock.Mock(returncode=0)
+        with mock.patch.object(S, "_keycloak_de", side_effect=kc_de), mock.patch.object(S, "log"), \
+                mock.patch.object(S.subprocess, "run", return_value=ok), mock.patch.object(S, "_dca"), \
+                mock.patch.object(S, "app_responde", return_value=True), mock.patch.object(S, "_compose_app"):
+            S.desplegar_app("inventario", "pro", "sha-abc1234")
+        self.assertEqual(pedidos, ["inventario"])
+        env = S.leer_env(self.dir / "apps" / "inventario" / "pro" / "app.env")
+        self.assertEqual(env["KEYCLOAK_CLIENT_SECRET"], "s3")
+
+    def test_desplegar_sin_secret_y_keycloak_falla_no_arranca(self):
+        self.alta(keycloak={"cliente": "{ruta}-{entorno}"})
+        with mock.patch.object(S, "_keycloak_de"), mock.patch.object(S, "log"), mock.patch.object(S, "_dca") as dca:
+            with self.assertRaises(S.Error):
+                S.desplegar_app("inventario", "pro", "sha-abc1234")
+        dca.assert_not_called()
+
     def test_memoria_fuera_de_rango_no_despliega(self):
         self.alta()
         with mock.patch.object(S, "desplegar_app") as dep:
