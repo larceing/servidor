@@ -1080,9 +1080,11 @@ def asegurar_cliente_movil(cliente: str, nombre: str, esquema: str, tema: str = 
                                  "protocolMapper": "oidc-group-membership-mapper",
                                  "config": {"claim.name": "groups", "full.path": "true", "userinfo.token.claim": "true",
                                             "id.token.claim": "true", "access.token.claim": "true"}}]}
-        kc("create", "clients", "-r", realm, "-f", "-", entrada=json.dumps(cuerpo))
+        cid = kc("create", "clients", "-r", realm, "-i", "-f", "-", entrada=json.dumps(cuerpo)).strip()
         log(f"Keycloak: cliente de móvil {cliente} creado ({vuelta})")
+        _alcances_movil(realm, cid, cliente)
         return
+    _alcances_movil(realm, cid, cliente)
     cli = json.loads(kc("get", f"clients/{cid}", "-r", realm))
     antes = json.dumps(cli, sort_keys=True)
     cli["redirectUris"] = sorted(set(cli.get("redirectUris") or []) | set(vueltas))
@@ -1093,6 +1095,29 @@ def asegurar_cliente_movil(cliente: str, nombre: str, esquema: str, tema: str = 
     if json.dumps(cli, sort_keys=True) != antes:
         kc("update", f"clients/{cid}", "-r", realm, "-f", "-", entrada=json.dumps(cli))
         log(f"Keycloak: cliente de móvil {cliente} al día")
+
+
+ALCANCES_MOVIL = {"profile": "default", "email": "default", "roles": "default", "web-origins": "default",
+                  "acr": "default", "basic": "default", "offline_access": "optional"}
+
+
+def _alcances_movil(realm: str, cid: str, cliente: str) -> None:
+    """La app pide 'openid profile email offline_access': si al cliente le falta alguno,
+    Keycloak la devuelve con invalid_scope. Se asignan los que existan en el realm."""
+    if not cid:
+        return
+    hay = {}
+    for a in json.loads(kc("get", "client-scopes", "-r", realm, "--fields", "id,name") or "[]"):
+        hay[a.get("name")] = a.get("id")
+    tiene = set()
+    for tipo in ("default", "optional"):
+        for a in json.loads(kc("get", f"clients/{cid}/{tipo}-client-scopes", "-r", realm) or "[]"):
+            tiene.add(a.get("name"))
+    for nombre, tipo in ALCANCES_MOVIL.items():
+        if nombre in tiene or not hay.get(nombre):
+            continue
+        kc("update", f"clients/{cid}/{tipo}-client-scopes/{hay[nombre]}", "-r", realm, "-n")
+        log(f"Keycloak: {cliente} con el alcance {nombre} ({tipo})")
 
 
 def poner_tema_cliente(realm: str, cliente: str, tema: str) -> None:
