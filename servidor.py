@@ -166,6 +166,19 @@ def dominio(c: dict, ent: str) -> str:
     return c.get(f"DOMINIO_{ent.upper()}", "")
 
 
+def dominio_interno(c: dict) -> str:
+    """El dominio del propio servidor (el de PRO sin su primera parte: pro.x.com → x.com).
+    Todo lo que cuelga de él (logins, Keycloak, n8n, demos) queda fuera de los buscadores.
+    Se puede fijar con DOMINIO_INTERNO en servidor.env."""
+    d = c.get("DOMINIO_INTERNO") or dominio(c, "pro").partition(".")[2]
+    return d if DOMINIO.match(d or "") and "." in d else ""
+
+
+def es_interno(c: dict, dom: str) -> bool:
+    base = dominio_interno(c)
+    return bool(base) and (dom == base or dom.endswith("." + base))
+
+
 def legado(c: dict) -> Path | None:
     p = c.get("LEGADO", "")
     return Path(p) if p and Path(p).is_dir() else None
@@ -617,9 +630,10 @@ server {{
 
 def conf_dominio(m: dict, dom: str) -> str:
     """Un dominio propio (solo PRO): la app entera en / de ese dominio. Fuera de
-    los buscadores si su manifiesto lo pide ("buscadores": false)."""
+    los buscadores si su manifiesto lo pide ("buscadores": false) o si cuelga del
+    dominio del propio servidor (es_interno)."""
     destino = f"{nombre_de(m['contenedor'], m['ruta'], 'pro')}:{m['puerto']}"
-    indexar = "" if m.get("buscadores", True) else NO_INDEXAR
+    indexar = "" if m.get("buscadores", True) and not es_interno(cfg(), dom) else NO_INDEXAR
     return f"""# {m['nombre']} en su dominio propio (servidor.py)
 server {{
   listen 80;
@@ -1241,17 +1255,44 @@ def npm_apuntar(dom: str, host: str, puerto: int) -> dict:
     return antes
 
 
+NPM_NO_INDEXAR = 'add_header X-Robots-Tag "noindex, nofollow" always;'
+
+
+def npm_no_indexar_internos() -> int:
+    """Los hosts de Nginx Proxy Manager del dominio del servidor (Keycloak, n8n,
+    demos…) mandan X-Robots-Tag: noindex. Solo los que cuelgan del dominio interno:
+    los dominios propios de las apps (p. ej. la web) no se tocan. Devuelve cuántos cambia."""
+    c = cfg()
+    if not dominio_interno(c):
+        return 0
+    token = npm_token()
+    hechos = 0
+    for h in _npm("GET", "/api/nginx/proxy-hosts", token=token):
+        doms = h.get("domain_names") or []
+        extra = h.get("advanced_config") or ""
+        if not doms or not all(es_interno(c, d) for d in doms) or "X-Robots-Tag" in extra:
+            continue
+        nuevo = (extra.rstrip("\n") + "\n" if extra.strip() else "") + NPM_NO_INDEXAR
+        _npm("PUT", f"/api/nginx/proxy-hosts/{int(h['id'])}", {"advanced_config": nuevo}, token=token)
+        log(f"{', '.join(doms)}: fuera de los buscadores (X-Robots-Tag en Nginx Proxy Manager)")
+        hechos += 1
+    return hechos
+
+
 def npm_proxy_host(dom: str, host: str, puerto: int) -> None:
     token = npm_token()
     if npm_host(dom, token):
         log(f"{dom} ya estaba en Nginx Proxy Manager")
         return
+    extra = "proxy_buffer_size 128k;\nproxy_buffers 4 256k;"
+    if es_interno(cfg(), dom):
+        extra += "\n" + NPM_NO_INDEXAR
     _npm("POST", "/api/nginx/proxy-hosts", {
         "domain_names": [dom], "forward_scheme": "http", "forward_host": host, "forward_port": puerto,
         "certificate_id": "new", "ssl_forced": True, "http2_support": True, "block_exploits": True,
         "allow_websocket_upgrade": True, "access_list_id": 0, "caching_enabled": False,
         "hsts_enabled": False, "hsts_subdomains": False, "locations": [],
-        "advanced_config": "proxy_buffer_size 128k;\nproxy_buffers 4 256k;",
+        "advanced_config": extra,
         "meta": {"letsencrypt_agree": True, "letsencrypt_email": leer_env(DIR / ".npm.env")["NPM_EMAIL"],
                  "dns_challenge": False}}, token=token)
     log(f"{dom}: creado en Nginx Proxy Manager, con certificado")
@@ -2098,6 +2139,10 @@ def agente() -> None:
             login_y_movil_de(ida)
     except Error as e:
         log(f"aviso: login de Keycloak: {e}")
+    try:
+        npm_no_indexar_internos()
+    except Error as e:
+        log(f"aviso: noindex en Nginx Proxy Manager: {e}")
     aplicar_todo()
     ultima = 0.0
     ultima_dominios = 0.0
