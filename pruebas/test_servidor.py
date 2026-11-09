@@ -188,17 +188,46 @@ class Entrada(Base):
         for ent in S.ENTORNOS:
             self.assertIn('add_header X-Robots-Tag "noindex, nofollow" always;', S.ficheros_entrada(ent)["default.conf"])
 
+    def _con_dominio(self, dom, **kw):
+        self.alta(**kw)
+        reg = json.loads((self.dir / "registro" / "inventario.json").read_text())
+        reg["dominio"] = dom
+        (self.dir / "registro" / "inventario.json").write_text(json.dumps(reg))
+        return S.ficheros_entrada("pro")["dominio-inventario.conf"]
+
     def test_dominio_propio_se_indexa_salvo_que_lo_pida(self):
-        self.alta()
-        reg = json.loads((self.dir / "registro" / "inventario.json").read_text())
-        reg["dominio"] = "inventario.ejemplo.com"
-        (self.dir / "registro" / "inventario.json").write_text(json.dumps(reg))
-        self.assertNotIn("X-Robots-Tag", S.ficheros_entrada("pro")["dominio-inventario.conf"])
-        self.alta(buscadores=False)
-        reg = json.loads((self.dir / "registro" / "inventario.json").read_text())
-        reg["dominio"] = "inventario.ejemplo.com"
-        (self.dir / "registro" / "inventario.json").write_text(json.dumps(reg))
-        self.assertIn('add_header X-Robots-Tag "noindex, nofollow" always;', S.ficheros_entrada("pro")["dominio-inventario.conf"])
+        self.assertNotIn("X-Robots-Tag", self._con_dominio("inventario.otro.com"))
+        self.assertIn('add_header X-Robots-Tag "noindex, nofollow" always;',
+                      self._con_dominio("inventario.otro.com", buscadores=False))
+
+    def test_dominio_del_servidor_nunca_se_indexa(self):
+        # pro.ejemplo.com → todo *.ejemplo.com es del servidor (logins, Keycloak…)
+        self.assertEqual(S.dominio_interno(S.cfg()), "ejemplo.com")
+        self.assertIn('add_header X-Robots-Tag "noindex, nofollow" always;', self._con_dominio("inventario.ejemplo.com"))
+        self.assertFalse(S.es_interno(S.cfg(), "arcedatalab.com"))
+        self.assertFalse(S.es_interno(S.cfg(), "otroejemplo.com"))
+
+    def test_npm_noindex_solo_en_hosts_internos(self):
+        hosts = [
+            {"id": 1, "domain_names": ["users.ejemplo.com"], "advanced_config": "proxy_buffer_size 128k;"},
+            {"id": 2, "domain_names": ["web.otro.com", "www.web.otro.com"], "advanced_config": ""},
+            {"id": 3, "domain_names": ["demo.ejemplo.com"], "advanced_config": 'add_header X-Robots-Tag "noindex, nofollow" always;'},
+            {"id": 4, "domain_names": ["n8n.ejemplo.com"], "advanced_config": None},
+        ]
+        puestos = {}
+
+        def falso(metodo, ruta, datos=None, token=""):
+            if metodo == "GET":
+                return hosts
+            puestos[ruta] = datos
+            return {}
+        with mock.patch.object(S, "_npm", side_effect=falso), mock.patch.object(S, "npm_token", return_value="t"):
+            self.assertEqual(S.npm_no_indexar_internos(), 2)
+        self.assertEqual(sorted(puestos), ["/api/nginx/proxy-hosts/1", "/api/nginx/proxy-hosts/4"])
+        self.assertEqual(puestos["/api/nginx/proxy-hosts/1"]["advanced_config"],
+                         'proxy_buffer_size 128k;\nadd_header X-Robots-Tag "noindex, nofollow" always;')
+        self.assertEqual(puestos["/api/nginx/proxy-hosts/4"]["advanced_config"],
+                         'add_header X-Robots-Tag "noindex, nofollow" always;')
 
     def test_buscadores_tiene_que_ser_si_o_no(self):
         with self.assertRaises(S.Error):

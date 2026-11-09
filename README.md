@@ -84,7 +84,7 @@ En la raíz de su repositorio. Ajustes → *Añadir una aplicación* → `usuari
 | `dentro` | la ruta de su app principal (ver abajo): va en `/<principal>/<ruta>/`. También se elige al añadirla | — |
 | `login` | su propia página de login: `{"titulo", "lema", "color", "logo"}` (todo opcional; `logo` es un fichero de la app que se sirve sin sesión, como `icono`). El servidor genera el tema `app-<id>-<entorno>` sobre la plantilla común y se lo pone a su cliente. Ver «Login propio y app de móvil» | la plantilla común |
 | `movil` | su app de móvil o tablet: `{"esquema": "brokkrcitas"}`. Crea el cliente público `<cliente>-movil` (PKCE, sin secret) que vuelve a `<esquema>://` en PRO y a `<esquema>-dev://` en DEV | — |
-| `buscadores` | `false`: su dominio propio en PRO manda `X-Robots-Tag: noindex, nofollow` (apps con login). La entrada de DEV y PRO y el dominio de una app principal no se indexan nunca | `true` |
+| `buscadores` | `false`: su dominio propio en PRO manda `X-Robots-Tag: noindex, nofollow` (apps con login). La entrada de DEV y PRO, el dominio de una app principal y cualquier dominio que cuelgue del propio servidor (el de PRO sin `pro.`, o `DOMINIO_INTERNO` en `servidor.env`) no se indexan nunca. El agente pone además la cabecera en los hosts de Nginx Proxy Manager de ese dominio (Keycloak, n8n, demos) y el tema de login de Keycloak lleva `<meta name="robots" content="noindex,nofollow">` | `true` |
 
 Varias apps en un repositorio: `{"apps": [ {...}, {...} ]}`.
 
