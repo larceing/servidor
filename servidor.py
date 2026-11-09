@@ -1410,8 +1410,14 @@ def desplegar_app(ida: str, ent: str, version: str, origen: str = "panel") -> No
                    "KEYCLOAK_GRUPO_APP": gs[0] if gs else f"{ent.upper()}/{ruta.capitalize()}",
                    "KEYCLOAK_GRUPO_ADMIN_GLOBAL": c["GRUPO_IT"]}
     cliente = nombre_de(m["keycloak"].get("cliente", ""), ruta, ent)
+    if cliente and not leer_env(DIR / "secretos" / f"{cliente}.env").get("KEYCLOAK_CLIENT_SECRET"):
+        # p. ej. un alta que se cortó a medias (sesión de Keycloak caducada): se rehace aquí
+        log(f"{ruta} {ent}: falta el secret de {cliente}; lo pido a Keycloak")
+        _keycloak_de(ida)
     if cliente:
         secreto = leer_env(DIR / "secretos" / f"{cliente}.env").get("KEYCLOAK_CLIENT_SECRET", "")
+        if not secreto:
+            raise Error(f"no hay secret de Keycloak para {cliente}; no despliego (mira el log de Keycloak)")
         entorno_app.update({"KEYCLOAK_CLIENT_ID": cliente, "KEYCLOAK_CLIENT_SECRET": secreto, "AUTH_MODO": "sso"})
     poner_env(d / "app.env", entorno_app)
     poner_env(d / ".env", {"IMAGEN": imagen, "VERSION": version})
