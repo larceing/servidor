@@ -58,6 +58,8 @@ Antes de empezar, decide dos cosas:
 
 - Si va dentro de un producto, añade `"dentro": "<ruta del producto>"` (o elígelo en
   Ajustes al añadirla).
+- `memoria_mb` se lee al añadirla. Para cambiarla en una app ya añadida sin volver a
+  añadirla, la petición `desplegar` admite `"memoria_mb": 1024` (vale desde ese despliegue).
 - El cliente de Keycloak se crea solo (`<ruta>-<entorno>`, o
   `<producto>-<ruta>-<entorno>`). Para otro nombre: `"keycloak": {"cliente": "…"}`.
 
