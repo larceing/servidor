@@ -56,6 +56,28 @@ class Base(unittest.TestCase):
         S.guardar_registro(S.validar_manifiesto({**base, **m}, "yo/inventario"), "yo/inventario")
 
 
+
+class Memoria(Base):
+    def test_la_memoria_del_manifiesto_sobrevive_al_releer_el_registro(self):
+        self.alta(despliegue={"tipo": "servidor", "imagen": "ghcr.io/yo/inventario", "memoria_mb": 1024})
+        self.assertEqual(S.registro()["inventario"]["manifiesto"]["despliegue"]["memoria"], 1024)
+
+    def test_desplegar_con_memoria_la_cambia_en_el_registro(self):
+        self.alta()
+        with mock.patch.object(S, "desplegar_app") as dep, mock.patch.object(S, "log"):
+            S._acc_desplegar({"id": "inventario", "entorno": "pro", "version": "sha-abc1234", "memoria_mb": 1024})
+        dep.assert_called_once_with("inventario", "pro", "sha-abc1234")
+        self.assertEqual(S.registro()["inventario"]["manifiesto"]["despliegue"]["memoria"], 1024)
+        self.assertEqual(S.registro()["inventario"]["repo"], "yo/inventario")
+
+    def test_memoria_fuera_de_rango_no_despliega(self):
+        self.alta()
+        with mock.patch.object(S, "desplegar_app") as dep:
+            for malo in (10, 99999, "x"):
+                with self.assertRaises(S.Error):
+                    S._acc_desplegar({"id": "inventario", "entorno": "dev", "version": "sha-abc1234", "memoria_mb": malo})
+        dep.assert_not_called()
+
 class Manifiesto(Base):
     def test_minimo_y_valores_por_defecto(self):
         m = S.validar_manifiesto({"ruta": "linai", "nombre": "Lin-AI", "grupo": "/DEV/Lin-AI",

@@ -247,7 +247,8 @@ def validar_manifiesto(m: dict, repo: str = "") -> dict:
         if not IMAGEN.match(desp["imagen"]) or ":" in desp["imagen"]:
             raise Error(f"imagen no válida: '{desp['imagen']}' (sin versión, p. ej. ghcr.io/usuario/app)")
         try:
-            desp["memoria"] = int(str(d.get("memoria_mb", 512)))
+            # el registro guarda "memoria" (ya validada): al releerlo vale igual que memoria_mb
+            desp["memoria"] = int(str(d.get("memoria_mb", d.get("memoria", 512))))
         except ValueError:
             raise Error("memoria_mb no válida") from None
         if not 64 <= desp["memoria"] <= 4096:
@@ -1588,7 +1589,31 @@ def _acc_principal(d: dict) -> None:
 
 
 def _acc_desplegar(d: dict) -> None:
-    desplegar_app(_id_de(d), str(d.get("entorno", "")), str(d.get("version", "")).strip())
+    ida = _id_de(d)
+    if d.get("memoria_mb") not in (None, ""):
+        poner_memoria(ida, d["memoria_mb"])
+    desplegar_app(ida, str(d.get("entorno", "")), str(d.get("version", "")).strip())
+
+
+def poner_memoria(ida: str, valor) -> None:
+    """Cambia la memoria de una app del servidor sin volver a registrarla (vale para el
+    siguiente despliegue; el manifiesto del repo debería decir lo mismo)."""
+    try:
+        mb = int(str(valor))
+    except ValueError:
+        raise Error("memoria_mb no válida") from None
+    if not 64 <= mb <= 4096:
+        raise Error("memoria_mb entre 64 y 4096")
+    datos = registro().get(ida)
+    if not datos or datos["manifiesto"]["despliegue"]["tipo"] != "servidor":
+        raise Error(f"'{ida}' no es una app que despliegue el servidor")
+    m = datos["manifiesto"]
+    if m["despliegue"].get("memoria") == mb:
+        return
+    m["despliegue"]["memoria"] = mb
+    extra = {k: v for k, v in datos.items() if k not in ("manifiesto", "repo", "origen", "fecha")}
+    guardar_registro(m, datos.get("repo", ""), origen=datos.get("origen", "panel"), **extra)
+    log(f"{ida}: memoria {mb} MB")
 
 
 def _acc_dominio(d: dict) -> None:
