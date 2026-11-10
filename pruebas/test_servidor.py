@@ -887,6 +887,11 @@ class SoloIt(Base):
                 S._acc_solo_it({"dominio": "n8n.ejemplo.com", "abiertas": "webhook", "activo": "si"})
         self.assertEqual(self.puestos[-1]["advanced_config"], "proxy_buffer_size 128k;")
 
+    def test_well_known_se_puede_abrir(self):
+        self.assertIn("^/(\\.well-known|webhook)(/|$)", S.conf_solo_it([".well-known", "webhook"]))
+        for malo in ("..", ".otra", "a.b", "./x"):
+            self.assertIsNone(S.RUTA_ABIERTA.match(malo))
+
     def test_solo_hosts_internos_y_rutas_validas(self):
         for malo in ({"dominio": "web.otro.com"}, {"dominio": "pro.ejemplo.com"},
                      {"dominio": "n8n.ejemplo.com", "abiertas": "webhook;deny"},

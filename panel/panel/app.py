@@ -733,7 +733,7 @@ async def cloudflare(request: Request):
     return _volver()
 
 
-RUTAS_ABIERTAS_RE = re.compile(r"^[a-z0-9][a-z0-9_/ ,-]{0,400}\Z")
+RUTAS_ABIERTAS_RE = re.compile(r"^[a-z0-9.][a-z0-9_/ ,.-]{0,400}\Z")
 
 
 @app.post("/ajustes/solo-it/")
