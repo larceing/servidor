@@ -829,7 +829,8 @@ def catalogo() -> dict:
             "dominios": {e: dominio(c, e) for e in ENTORNOS}, "gestionados": c["_gestionados"],
             "ajustes_en": c["AJUSTES_EN"], "grupo_it": c["GRUPO_IT"], "entradas": entradas,
             "apps": apps, "sin_alta": [{"ruta": r, "grupo": sueltos.get(r, "")} for r in sin_alta],
-            "npm": (DIR / ".npm.env").exists(), "cloudflare": (DIR / ".cloudflare.env").exists()}
+            "npm": (DIR / ".npm.env").exists(), "cloudflare": (DIR / ".cloudflare.env").exists(),
+            "solo_it": solo_it_lista()}
 
 
 def escribir_catalogo() -> None:
@@ -1308,6 +1309,145 @@ def npm_proxy_host(dom: str, host: str, puerto: int) -> None:
         "meta": {"letsencrypt_agree": True, "letsencrypt_email": leer_env(DIR / ".npm.env")["NPM_EMAIL"],
                  "dns_challenge": False}}, token=token)
     log(f"{dom}: creado en Nginx Proxy Manager, con certificado")
+
+
+# ── Solo IT: un host interno de Nginx Proxy Manager detrás del login del servidor ──
+# Para servicios fuera del sistema (p. ej. el editor de n8n): todo pide la sesión de
+# Ajustes de una persona de IT, salvo las rutas abiertas (webhooks, API con su llave…).
+# NPM hace la pregunta al panel con auth_request; el login corre en el propio host.
+
+SOLO_IT_INICIO = "# solo-it: inicio (lo pone servidor.py; «Quitar» en Ajustes lo deshace)"
+SOLO_IT_FIN = "# solo-it: fin"
+SOLO_IT_OFF = "auth_request off;   # solo-it: ruta abierta"
+RUTA_ABIERTA = re.compile(r"^[a-z0-9][a-z0-9_-]{0,40}(/[a-z0-9][a-z0-9_-]{0,40}){0,3}\Z")
+
+
+def solo_it_lista() -> dict:
+    """{dominio: [rutas abiertas]} de los hosts que están en Solo IT."""
+    try:
+        d = json.loads((DIR / "solo-it.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    return {k: [r for r in v if isinstance(r, str) and RUTA_ABIERTA.match(r)]
+            for k, v in d.items() if isinstance(k, str) and DOMINIO.match(k) and isinstance(v, list)}
+
+
+def conf_solo_it(abiertas: list[str], propias: tuple = ()) -> str:
+    """Lo que va en el «advanced_config» del host de NPM (a nivel de server).
+    propias: los caminos de las ubicaciones propias del host (p. ej. media): esas se
+    abren en su ubicación; si entraran aquí, esta regex les quitaría su destino."""
+    abiertas = [r for r in abiertas if not any(r == p or r.startswith(p + "/") for p in propias)]
+    panel = (f"    resolver 127.0.0.11 valid=10s ipv6=off;\n    set $solo_it_panel http://{PANEL}:8000;\n")
+    cab = ("    proxy_set_header Host $host;\n    proxy_set_header X-Forwarded-Proto https;\n"
+           "    proxy_set_header X-Forwarded-For $remote_addr;\n")
+    abiertas_re = "|".join(abiertas)   # ya validadas con RUTA_ABIERTA: solo [a-z0-9_/-]
+    partes = [SOLO_IT_INICIO,
+              "auth_request /_solo_it;",
+              "error_page 401 = @solo_it_entrar;",
+              "location = /_solo_it {\n    internal;\n    auth_request off;\n" + panel +
+              "    proxy_pass $solo_it_panel/ajustes/solo-it/comprobar;\n    proxy_method GET;\n    proxy_pass_request_body off;\n"
+              '    proxy_set_header Content-Length "";\n' + cab + "}",
+              "location @solo_it_entrar {\n    return 303 /ajustes/entrar?next=$uri;\n}",
+              "location ~ ^/ajustes/(entrar|entrar/vuelta|salir)$ {\n    auth_request off;\n" + panel +
+              "    proxy_pass $solo_it_panel;\n" + cab + "}"]
+    if abiertas_re:
+        partes.append(f"location ~ ^/({abiertas_re})(/|$) {{\n    auth_request off;\n"
+                      "    include conf.d/include/proxy.conf;\n}")
+    partes.append(SOLO_IT_FIN)
+    return "\n".join(partes)
+
+
+def quitar_solo_it(extra: str) -> str:
+    """El advanced_config sin el bloque de Solo IT."""
+    fuera, dentro = [], False
+    for l in (extra or "").splitlines():
+        if l.strip() == SOLO_IT_INICIO:
+            dentro = True
+            continue
+        if dentro:
+            if l.strip() == SOLO_IT_FIN:
+                dentro = False
+            continue
+        fuera.append(l)
+    return "\n".join(fuera).strip("\n")
+
+
+def _locations_solo_it(locs: list, abiertas: list[str], activo: bool) -> list:
+    """Las ubicaciones propias del host (p. ej. /media/): las abiertas, sin login."""
+    nuevas = []
+    for loc in locs or []:
+        loc = dict(loc)
+        extra = "\n".join(l for l in (loc.get("advanced_config") or "").splitlines() if l.strip() != SOLO_IT_OFF)
+        camino = str(loc.get("path", "")).strip("/")
+        if activo and any(camino == r or camino.startswith(r + "/") for r in abiertas):
+            extra = (extra.rstrip("\n") + "\n" if extra.strip() else "") + SOLO_IT_OFF
+        loc["advanced_config"] = extra
+        nuevas.append(loc)
+    return nuevas
+
+
+def npm_solo_it(dom: str, abiertas: list[str], activo: bool) -> None:
+    token = npm_token()
+    h = npm_host(dom, token)
+    if not h:
+        raise Error(f"{dom} no está en Nginx Proxy Manager")
+    antes = {"advanced_config": h.get("advanced_config") or ""}
+    if h.get("locations"):
+        antes["locations"] = h["locations"]
+    extra = quitar_solo_it(antes["advanced_config"])
+    if activo:
+        propias = tuple(str(l.get("path", "")).strip("/") for l in antes.get("locations", []) if l.get("path"))
+        extra = (extra + "\n" if extra.strip() else "") + conf_solo_it(abiertas, propias)
+    nuevo = {"advanced_config": extra}
+    if antes["locations"]:
+        nuevo["locations"] = _locations_solo_it(antes["locations"], abiertas, activo)
+    if nuevo == antes:
+        log(f"{dom}: Nginx Proxy Manager ya estaba así")
+        return
+    r = _npm("PUT", f"/api/nginx/proxy-hosts/{int(h['id'])}", nuevo, token=token) or {}
+    if (r.get("meta") or {}).get("nginx_online") is False:
+        _npm("PUT", f"/api/nginx/proxy-hosts/{int(h['id'])}", antes, token=token)
+        raise Error(f"{dom}: Nginx Proxy Manager no acepta la configuración "
+                    f"({str((r.get('meta') or {}).get('nginx_err') or '')[:200]}); vuelto a lo de antes")
+
+
+def _acc_solo_it(d: dict) -> None:
+    c = cfg()
+    dom = str(d.get("dominio", "")).strip().lower()
+    activo = str(d.get("activo", "si")) == "si"
+    if not DOMINIO.match(dom) or not es_interno(c, dom):
+        raise Error(f"dominio no válido: '{dom}' (solo hosts de {dominio_interno(c) or 'el dominio del servidor'})")
+    if dom in {dominio(c, e) for e in ENTORNOS}:
+        raise Error("los dominios de DEV y PRO ya tienen su login")
+    abiertas = []
+    for r in str(d.get("abiertas", "")).replace(",", " ").split():
+        r = r.strip("/").lower()
+        if not RUTA_ABIERTA.match(r) or r.split("/")[0] in RESERVADAS:
+            raise Error(f"ruta abierta no válida: '{r}'")
+        abiertas.append(r)
+    lista = solo_it_lista()
+    if activo:
+        try:
+            kc_entrar()
+            realm = _realm(c)
+            cid = _cliente_id(realm, c["KEYCLOAK_CLIENTE"])
+            if not cid:
+                raise Error(f"no encuentro el cliente {c['KEYCLOAK_CLIENTE']} en Keycloak")
+            anadir_url_cliente(realm, cid, f"https://{dom}/ajustes")
+        except Error as e:
+            raise Error(f"Keycloak: {e}") from None
+        # primero el panel tiene que saber de este host (si no, su login vuelve a PRO)
+        lista[dom] = sorted(set(abiertas))
+        escribir(DIR / "solo-it.json", json.dumps(lista, indent=1) + "\n")
+        escribir_catalogo()
+        npm_solo_it(dom, lista[dom], True)
+        log(f"{dom}: solo IT con el login del servidor; abiertas: {', '.join('/' + r for r in lista[dom]) or 'ninguna'}")
+    else:
+        npm_solo_it(dom, lista.get(dom, []), False)
+        lista.pop(dom, None)
+        escribir(DIR / "solo-it.json", json.dumps(lista, indent=1) + "\n")
+        escribir_catalogo()
+        log(f"{dom}: quitado de Solo IT (vuelve a estar como antes)")
 
 
 # ── Cloudflare (DNS de los dominios propios, si se guarda su token) ─────────
@@ -1928,7 +2068,8 @@ def _acc_npm(d: dict) -> None:
 ACCIONES = {"registrar": _acc_registrar, "quitar": _acc_quitar, "grupo": _acc_grupo,
             "desplegar": _acc_desplegar, "dominio": _acc_dominio, "npm": _acc_npm,
             "principal": _acc_principal, "principal_ajustes": _acc_principal_ajustes,
-            "sincronizar": _acc_sincronizar, "quitar_dominio": _acc_quitar_dominio, "cloudflare": _acc_cloudflare}
+            "sincronizar": _acc_sincronizar, "quitar_dominio": _acc_quitar_dominio, "cloudflare": _acc_cloudflare,
+            "solo_it": _acc_solo_it}
 
 
 def procesar_peticiones() -> int:

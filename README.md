@@ -170,6 +170,20 @@ mira solo si el DNS, el proxy, el certificado y la respuesta siguen bien, y Ajus
 enseña. **Quitar su dominio** lo devuelve a donde iba antes (el DNS no se toca). La app
 tiene que aceptar esa dirección (ver *Lo que el servidor espera de una app*).
 
+## Solo IT: otros servicios detrás del login
+
+Para un host de Nginx Proxy Manager del dominio del servidor que no es una app del
+sistema (p. ej. el editor de n8n): Ajustes → *Solo IT* → dominio y rutas abiertas.
+
+- El agente añade al `advanced_config` del host un bloque entre `# solo-it: inicio` y
+  `# solo-it: fin`: `auth_request` al panel (`/ajustes/solo-it/comprobar`: 204 si es de IT,
+  401 si no ha entrado, que lleva a `/ajustes/entrar` en el propio host, 403 si no es de IT).
+- Las rutas abiertas (p. ej. `webhook form api/v1 mcp-server healthz media`) no lo piden.
+  Si una es una ubicación propia del host (como `/media/`), se le pone `auth_request off`.
+- Añade `https://<host>/ajustes/*` como vuelta del cliente `KEYCLOAK_CLIENTE` y apunta el host
+  en `solo-it.json` (lo lee el panel desde `catalogo.json`).
+- Si NPM no acepta la config, vuelve a la de antes. «Quitarlo» deja el host como estaba.
+
 ## Configuración: `/opt/apps/servidor/servidor.env`
 
 La escribe `instalar`. `DOMINIO_DEV`, `DOMINIO_PRO`, `KEYCLOAK_ISSUER`,

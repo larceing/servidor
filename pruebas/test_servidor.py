@@ -831,3 +831,66 @@ class KcSesionCaducada(unittest.TestCase):
         caducada = S.Error("Session has expired")
         with self.assertRaises(S.Error):
             self._kc([caducada, caducada])
+
+
+class SoloIt(Base):
+    HOST = {"id": 15, "domain_names": ["n8n.ejemplo.com"], "advanced_config": "proxy_buffer_size 128k;",
+            "locations": [{"path": "/media/", "forward_host": "n8n-media", "forward_port": 80, "advanced_config": ""}]}
+
+    def npm_falso(self, respuesta=None):
+        self.puestos = []
+        host = json.loads(json.dumps(self.HOST))
+
+        def falso(metodo, ruta, datos=None, token=""):
+            if metodo == "GET":
+                return [host]
+            self.puestos.append(datos)
+            host.update(datos)
+            return respuesta if respuesta is not None and len(self.puestos) == 1 else {}
+        return mock.patch.object(S, "_npm", side_effect=falso)
+
+    def test_la_config_abre_solo_las_rutas_pedidas(self):
+        conf = S.conf_solo_it(["webhook", "api/v1", "media"], ("media",))
+        self.assertIn("auth_request /_solo_it;", conf)
+        self.assertIn("location ~ ^/(webhook|api/v1)(/|$) {", conf)   # media va en su ubicación
+        self.assertIn("proxy_pass $solo_it_panel/ajustes/solo-it/comprobar;", conf)
+        self.assertIn("location ~ ^/ajustes/(entrar|entrar/vuelta|salir)$ {", conf)
+        self.assertNotIn("location /ajustes/ ", conf)   # el resto de Ajustes no se sirve en ese host
+        self.assertEqual(S.quitar_solo_it("a;\n" + conf + "\nb;"), "a;\nb;")
+
+    @mock.patch.object(S, "kc_entrar")
+    @mock.patch.object(S, "_cliente_id", return_value="cid")
+    @mock.patch.object(S, "anadir_url_cliente")
+    def test_poner_y_quitar(self, url, _cid, _kc):
+        with self.npm_falso(), mock.patch.object(S, "npm_token", return_value="t"), mock.patch.object(S, "log"):
+            S._acc_solo_it({"dominio": "n8n.ejemplo.com", "abiertas": "webhook, /api/v1/ media", "activo": "si"})
+            url.assert_called_once_with("general", "cid", "https://n8n.ejemplo.com/ajustes")
+            self.assertEqual(S.solo_it_lista(), {"n8n.ejemplo.com": ["api/v1", "media", "webhook"]})
+            self.assertEqual(S.catalogo()["solo_it"], {"n8n.ejemplo.com": ["api/v1", "media", "webhook"]})
+            puesto = self.puestos[-1]
+            self.assertTrue(puesto["advanced_config"].startswith("proxy_buffer_size 128k;\n" + S.SOLO_IT_INICIO))
+            self.assertIn("^/(api/v1|webhook)(/|$)", puesto["advanced_config"])
+            self.assertEqual(puesto["locations"][0]["advanced_config"], S.SOLO_IT_OFF)
+            self.assertEqual(puesto["locations"][0]["forward_host"], "n8n-media")
+            S._acc_solo_it({"dominio": "n8n.ejemplo.com", "activo": "no"})
+        self.assertEqual(self.puestos[-1]["advanced_config"], "proxy_buffer_size 128k;")
+        self.assertEqual(self.puestos[-1]["locations"][0]["advanced_config"], "")
+        self.assertEqual(S.solo_it_lista(), {})
+
+    @mock.patch.object(S, "kc_entrar")
+    @mock.patch.object(S, "_cliente_id", return_value="cid")
+    @mock.patch.object(S, "anadir_url_cliente")
+    def test_si_npm_no_la_acepta_vuelve_atras(self, *_):
+        with self.npm_falso({"meta": {"nginx_online": False, "nginx_err": "unknown directive"}}), \
+                mock.patch.object(S, "npm_token", return_value="t"), mock.patch.object(S, "log"):
+            with self.assertRaises(S.Error):
+                S._acc_solo_it({"dominio": "n8n.ejemplo.com", "abiertas": "webhook", "activo": "si"})
+        self.assertEqual(self.puestos[-1]["advanced_config"], "proxy_buffer_size 128k;")
+
+    def test_solo_hosts_internos_y_rutas_validas(self):
+        for malo in ({"dominio": "web.otro.com"}, {"dominio": "pro.ejemplo.com"},
+                     {"dominio": "n8n.ejemplo.com", "abiertas": "webhook;deny"},
+                     {"dominio": "n8n.ejemplo.com", "abiertas": "ajustes"},
+                     {"dominio": "n8n.ejemplo.com", "abiertas": "a b) { }"}):
+            with self.assertRaises(S.Error):
+                S._acc_solo_it({"activo": "si", **malo})
