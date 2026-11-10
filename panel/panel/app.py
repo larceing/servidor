@@ -106,9 +106,18 @@ def en_dominio_de(request: Request) -> dict | None:
     return p if p and p.get("dominio") and host == p["dominio"] else None
 
 
+def solo_it_host(request: Request) -> str:
+    """El host si es uno de «Solo IT» (su login vuelve a él, no a PRO)."""
+    host = request.headers.get("host", "").split(":")[0].lower()
+    return host if host and host in (catalogo().get("solo_it") or {}) else ""
+
+
 def base_de(request: Request) -> str:
     p = en_dominio_de(request)
-    return f"https://{p['dominio']}" if p else base_url(entorno_de(request))
+    if p:
+        return f"https://{p['dominio']}"
+    h = solo_it_host(request)
+    return f"https://{h}" if h else base_url(entorno_de(request))
 
 
 def cliente_de(request: Request) -> tuple:
@@ -222,6 +231,15 @@ def salir(request: Request):
         q["id_token_hint"] = id_token
     return RedirectResponse(f"{env('KEYCLOAK_ISSUER').rstrip('/')}/protocol/openid-connect/logout?{urlencode(q)}",
                             status_code=303)
+
+
+@app.get("/ajustes/solo-it/comprobar")
+def solo_it_comprobar(request: Request):
+    """Lo pregunta Nginx Proxy Manager (auth_request) en los hosts de «Solo IT»:
+    204 si es una persona de IT, 401 si no ha entrado (le lleva al login), 403 si no es de IT."""
+    if not usuario(request):
+        return Response(status_code=401)
+    return Response(status_code=204 if es_it(request) else 403)
 
 
 @app.api_route("/ajustes/salud", methods=["GET", "HEAD"])
@@ -712,6 +730,25 @@ async def cloudflare(request: Request):
         return _volver()
     pedir(request, "cloudflare", {"token": tok})
     avisar(request, "bien", "Pedido: guardar el token de Cloudflare (solo lo lee el servidor).")
+    return _volver()
+
+
+RUTAS_ABIERTAS_RE = re.compile(r"^[a-z0-9][a-z0-9_/ ,-]{0,400}\Z")
+
+
+@app.post("/ajustes/solo-it/")
+async def solo_it(request: Request):
+    form = await _form(request)
+    if form is None:
+        return Response(status_code=403)
+    dom = str(form.get("dominio", "")).strip().lower()
+    abiertas = str(form.get("abiertas", "")).strip().lower()
+    activo = "no" if str(form.get("activo", "")) == "no" else "si"
+    if not re.fullmatch(r"([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,}", dom) or (abiertas and not RUTAS_ABIERTAS_RE.match(abiertas)):
+        avisar(request, "mal", "Dominio o rutas no válidos.")
+        return _volver()
+    pedir(request, "solo_it", {"dominio": dom, "abiertas": abiertas, "activo": activo})
+    avisar(request, "bien", f"Pedido: {dom} solo para IT." if activo == "si" else f"Pedido: quitar {dom} de Solo IT.")
     return _volver()
 
 

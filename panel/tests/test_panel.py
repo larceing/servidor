@@ -557,3 +557,46 @@ class Api(unittest.TestCase):
         r = cliente("ana", ["/PRO/Tareas/Admin"]).post("/ajustes/api/claves/", data={"nombre": "x", "csrf": "x"})
         self.assertEqual(r.status_code, 403)
         self.assertEqual(claves.listar(), [])
+
+
+class SoloIt(unittest.TestCase):
+    """Un host de «Solo IT» (p. ej. n8n): NPM pregunta al panel antes de dejar pasar."""
+    def setUp(self):
+        poner_catalogo({**CATALOGO, "solo_it": {"n8n.ejemplo.com": ["webhook"]}})
+        for p in Path(TMP, "peticiones").glob("*"):
+            p.unlink()
+
+    def de_n8n(self, usuario=None, grupos=()):
+        c = TestClient(panel.app, base_url="http://n8n.ejemplo.com")
+        if usuario:
+            datos = {"usuario": usuario, "grupos": list(grupos), "id_token": "tok"}
+            with mock.patch.object(panel, "canjear_codigo", return_value=datos) as canje:
+                r = c.get("/ajustes/entrar?next=/home/workflows", follow_redirects=False)
+                self.assertIn("redirect_uri=https%3A%2F%2Fn8n.ejemplo.com%2Fajustes%2Fentrar%2Fvuelta", r.headers["location"])
+                from urllib.parse import parse_qs, urlparse
+                state = parse_qs(urlparse(r.headers["location"]).query)["state"][0]
+                r = c.get(f"/ajustes/entrar/vuelta?code=abc&state={state}", follow_redirects=False)
+                self.assertEqual(r.headers["location"], "/home/workflows")
+                self.assertEqual(canje.call_args[0][1], "https://n8n.ejemplo.com/ajustes/entrar/vuelta")
+        return c
+
+    def test_sin_entrar_401_sin_ser_it_403_y_de_it_204(self):
+        self.assertEqual(self.de_n8n().get("/ajustes/solo-it/comprobar").status_code, 401)
+        self.assertEqual(self.de_n8n("bruno", ["PRO/Tareas"]).get("/ajustes/solo-it/comprobar").status_code, 403)
+        self.assertEqual(self.de_n8n("ana", ["IT"]).get("/ajustes/solo-it/comprobar").status_code, 204)
+
+    def test_otro_host_sigue_volviendo_a_pro(self):
+        c = TestClient(panel.app, base_url="http://otro.ejemplo.com")
+        r = c.get("/ajustes/entrar?next=/", follow_redirects=False)
+        self.assertIn("redirect_uri=https%3A%2F%2Fpro.ejemplo.com", r.headers["location"])
+
+    def test_ajustes_pide_solo_it(self):
+        c = cliente("ana", ["/IT"])
+        csrf = c.get("/ajustes/").text.split('name="csrf" value="')[1].split('"')[0]
+        r = c.post("/ajustes/solo-it/", data={"csrf": csrf, "dominio": "n8n.ejemplo.com", "abiertas": "webhook api/v1"},
+                   follow_redirects=False)
+        self.assertEqual(r.status_code, 303)
+        pet = json.loads(next(Path(TMP, "peticiones").glob("*.json")).read_text())
+        self.assertEqual((pet["accion"], pet["datos"]), ("solo_it", {"dominio": "n8n.ejemplo.com", "abiertas": "webhook api/v1", "activo": "si"}))
+        r = c.post("/ajustes/solo-it/", data={"csrf": csrf, "dominio": "n8n.ejemplo.com", "abiertas": "a;b"}, follow_redirects=False)
+        self.assertEqual(len(list(Path(TMP, "peticiones").glob("*.json"))), 1)

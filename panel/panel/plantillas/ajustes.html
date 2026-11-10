@@ -311,6 +311,15 @@
       <div class="grupo-campo"><label>CONTRASEÑA</label><input type="password" name="clave" autocomplete="new-password" required></div>
       <button class="b2" type="submit">Guardar</button>
     </form>
+    <form class="form" method="post" action="/ajustes/solo-it/"><input type="hidden" name="csrf" value="{{ csrf }}">
+      <h3>Solo IT (otros servicios)</h3>
+      <p class="texto" style="margin:0 0 12px;">Un host de Nginx Proxy Manager del dominio del servidor (p. ej. el editor de n8n) pide antes el login de aquí y solo deja pasar a IT. Las rutas abiertas no lo piden (webhooks, API con su propia llave…).
+        {% if cat.solo_it %}Ahora: {% for d, rs in cat.solo_it.items() %}<b>{{ d }}</b>{% if rs %} (abiertas: {{ rs|map("string")|join(", ") }}){% endif %}{% if not loop.last %} · {% endif %}{% endfor %}.{% endif %}</p>
+      <div class="grupo-campo"><label>DOMINIO</label><input type="text" name="dominio" placeholder="n8n.ejemplo.com" required></div>
+      <div class="grupo-campo"><label>RUTAS ABIERTAS</label><input type="text" name="abiertas" placeholder="webhook webhook-test webhook-waiting form form-test form-waiting api/v1 mcp-server mcp healthz media"></div>
+      <div class="grupo-campo"><label><input type="checkbox" name="activo" value="no"> Quitarlo (vuelve a como estaba)</label></div>
+      <button class="b2" type="submit">Guardar</button>
+    </form>
     <form class="form" method="post" action="/ajustes/cloudflare/"><input type="hidden" name="csrf" value="{{ csrf }}">
       <h3>Cloudflare (DNS)</h3>
       <p class="texto" style="margin:0 0 12px;">Para que el servidor cree el DNS de cada dominio propio (nube gris). {% if cat.cloudflare %}<b>Ya está guardado.</b>{% else %}Un token con permiso «Zone → DNS → Edit» solo de tu zona.{% endif %} Se queda en el servidor.</p>
