@@ -1348,7 +1348,7 @@ def conf_solo_it(abiertas: list[str], propias: tuple = ()) -> str:
               "location = /_solo_it {\n    internal;\n    auth_request off;\n" + panel +
               "    proxy_pass $solo_it_panel/ajustes/solo-it/comprobar;\n    proxy_method GET;\n    proxy_pass_request_body off;\n"
               '    proxy_set_header Content-Length "";\n' + cab + "}",
-              "location @solo_it_entrar {\n    return 303 /ajustes/entrar?next=$uri;\n}",
+              "location @solo_it_entrar {\n    return 303 /ajustes/entrar?next=$uri&$args;\n}",   # el panel junta $args a next
               "location ~ ^/ajustes/(entrar|entrar/vuelta|salir)$ {\n    auth_request off;\n" + panel +
               "    proxy_pass $solo_it_panel;\n" + cab + "}"]
     if abiertas_re:

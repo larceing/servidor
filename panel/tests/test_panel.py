@@ -585,6 +585,16 @@ class SoloIt(unittest.TestCase):
         self.assertEqual(self.de_n8n("bruno", ["PRO/Tareas"]).get("/ajustes/solo-it/comprobar").status_code, 403)
         self.assertEqual(self.de_n8n("ana", ["IT"]).get("/ajustes/solo-it/comprobar").status_code, 204)
 
+    def test_la_consulta_original_vuelve_entera(self):
+        c = TestClient(panel.app, base_url="http://n8n.ejemplo.com")
+        datos = {"usuario": "ana", "grupos": ["IT"], "id_token": "tok"}
+        with mock.patch.object(panel, "canjear_codigo", return_value=datos):
+            r = c.get("/ajustes/entrar?next=/oauth/consent&client_id=x&redirect_uri=https%3A%2F%2Fa.b%2Fc", follow_redirects=False)
+            from urllib.parse import parse_qs, urlparse
+            state = parse_qs(urlparse(r.headers["location"]).query)["state"][0]
+            r = c.get(f"/ajustes/entrar/vuelta?code=abc&state={state}", follow_redirects=False)
+        self.assertEqual(r.headers["location"], "/oauth/consent?client_id=x&redirect_uri=https%3A%2F%2Fa.b%2Fc")
+
     def test_otro_host_sigue_volviendo_a_pro(self):
         c = TestClient(panel.app, base_url="http://otro.ejemplo.com")
         r = c.get("/ajustes/entrar?next=/", follow_redirects=False)

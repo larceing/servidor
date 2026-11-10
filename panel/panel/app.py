@@ -171,6 +171,11 @@ def _kc(camino: str) -> str:
 
 @app.get("/ajustes/entrar")
 def entrar(request: Request, next: str = "/"):
+    if solo_it_host(request):
+        # NPM manda la consulta original suelta (?next=/camino&a=1&b=2): vuelve entera
+        resto = [(k, v) for k, v in request.query_params.multi_items() if k != "next"]
+        if resto:
+            next = f"{next}?{urlencode(resto)}"
     estado = secrets.token_urlsafe(24)
     base = base_de(request)
     request.session["login"] = {"estado": estado, "next": _siguiente_valido(next), "base": base}
