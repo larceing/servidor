@@ -1319,7 +1319,8 @@ def npm_proxy_host(dom: str, host: str, puerto: int) -> None:
 SOLO_IT_INICIO = "# solo-it: inicio (lo pone servidor.py; «Quitar» en Ajustes lo deshace)"
 SOLO_IT_FIN = "# solo-it: fin"
 SOLO_IT_OFF = "auth_request off;   # solo-it: ruta abierta"
-RUTA_ABIERTA = re.compile(r"^[a-z0-9][a-z0-9_-]{0,40}(/[a-z0-9][a-z0-9_-]{0,40}){0,3}\Z")
+# .well-known: los metadatos de OAuth (p. ej. los conectores MCP de n8n)
+RUTA_ABIERTA = re.compile(r"^(\.well-known|[a-z0-9][a-z0-9_-]{0,40})(/[a-z0-9][a-z0-9_-]{0,40}){0,3}\Z")
 
 
 def solo_it_lista() -> dict:
@@ -1340,7 +1341,7 @@ def conf_solo_it(abiertas: list[str], propias: tuple = ()) -> str:
     panel = (f"    resolver 127.0.0.11 valid=10s ipv6=off;\n    set $solo_it_panel http://{PANEL}:8000;\n")
     cab = ("    proxy_set_header Host $host;\n    proxy_set_header X-Forwarded-Proto https;\n"
            "    proxy_set_header X-Forwarded-For $remote_addr;\n")
-    abiertas_re = "|".join(abiertas)   # ya validadas con RUTA_ABIERTA: solo [a-z0-9_/-]
+    abiertas_re = "|".join(r.replace(".", "\\.") for r in abiertas)   # validadas con RUTA_ABIERTA
     partes = [SOLO_IT_INICIO,
               "auth_request /_solo_it;",
               "error_page 401 = @solo_it_entrar;",
