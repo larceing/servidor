@@ -1,0 +1,31 @@
+# Avisos de versiones nuevas (D20 de seguridad). Un PR por semana como mucho
+# por tipo; las menores van juntas.
+version: 2
+updates:
+  - package-ecosystem: pip
+    directory: "/panel"
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    groups:
+      menores:
+        update-types: [minor, patch]
+  - package-ecosystem: docker
+    directory: "/panel"
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    groups:
+      menores:
+        update-types: [minor, patch]
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    groups:
+      menores:
+        update-types: [minor, patch]
