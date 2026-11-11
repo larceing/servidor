@@ -1,6 +1,6 @@
 # Portada y Ajustes del servidor. La construye el propio servidor (servidor.py)
 # con el codigo de cada version; no hace falta ningun registro de imagenes.
-FROM python:3.12-slim
+FROM python:3.15-slim
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 PIP_NO_CACHE_DIR=1
 WORKDIR /app
 COPY requirements.txt .
