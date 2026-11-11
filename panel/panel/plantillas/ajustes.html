@@ -320,6 +320,12 @@
       <div class="grupo-campo"><label><input type="checkbox" name="activo" value="no"> Quitarlo (vuelve a como estaba)</label></div>
       <button class="b2" type="submit">Guardar</button>
     </form>
+    <form class="form" method="post" action="/ajustes/sesiones/"><input type="hidden" name="csrf" value="{{ csrf }}">
+      <h3>«Seguir conectado» en el login</h3>
+      <p class="texto" style="margin:0 0 12px;">Cuántos días dura la sesión de quien marca «Seguir conectado» al entrar (todas las apps, DEV y PRO). Sin esto pide la contraseña cada día.</p>
+      <div class="grupo-campo"><label>DÍAS</label><input type="number" name="dias" min="1" max="90" value="30" required></div>
+      <button class="b2" type="submit">Guardar</button>
+    </form>
     <form class="form" method="post" action="/ajustes/cloudflare/"><input type="hidden" name="csrf" value="{{ csrf }}">
       <h3>Cloudflare (DNS)</h3>
       <p class="texto" style="margin:0 0 12px;">Para que el servidor cree el DNS de cada dominio propio (nube gris). {% if cat.cloudflare %}<b>Ya está guardado.</b>{% else %}Un token con permiso «Zone → DNS → Edit» solo de tu zona.{% endif %} Se queda en el servidor.</p>

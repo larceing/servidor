@@ -833,6 +833,23 @@ class KcSesionCaducada(unittest.TestCase):
             self._kc([caducada, caducada])
 
 
+class Sesiones(Base):
+    @mock.patch.object(S, "kc_entrar")
+    def test_pone_remember_me_en_el_realm(self, _kc):
+        with mock.patch.object(S, "kc") as kc, mock.patch.object(S, "log"):
+            S._acc_sesiones({"dias": "30"})
+        args = kc.call_args[0]
+        self.assertEqual(args[:2], ("update", "realms/general"))
+        self.assertIn("ssoSessionIdleTimeoutRememberMe=2592000", args)
+        self.assertIn("ssoSessionMaxLifespanRememberMe=2592000", args)
+        self.assertIn("rememberMe=true", args)
+
+    def test_dias_fuera_de_rango(self):
+        for d in ("0", "91", "x", "", "30; rm"):
+            with self.assertRaises(S.Error):
+                S._acc_sesiones({"dias": d})
+
+
 class SoloIt(Base):
     HOST = {"id": 15, "domain_names": ["n8n.ejemplo.com"], "advanced_config": "proxy_buffer_size 128k;",
             "locations": [{"path": "/media/", "forward_host": "n8n-media", "forward_port": 80, "advanced_config": ""}]}

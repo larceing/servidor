@@ -757,6 +757,20 @@ async def solo_it(request: Request):
     return _volver()
 
 
+@app.post("/ajustes/sesiones/")
+async def sesiones(request: Request):
+    form = await _form(request)
+    if form is None:
+        return Response(status_code=403)
+    dias = str(form.get("dias", "")).strip()
+    if not re.fullmatch(r"[0-9]{1,2}", dias) or not 1 <= int(dias) <= 90:
+        avisar(request, "mal", "Pon de 1 a 90 días.")
+        return _volver()
+    pedir(request, "sesiones", {"dias": dias})
+    avisar(request, "bien", f"Pedido: «Seguir conectado» durará {dias} días.")
+    return _volver()
+
+
 @app.post("/ajustes/npm/")
 async def npm(request: Request):
     form = await _form(request)
