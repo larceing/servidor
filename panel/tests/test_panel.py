@@ -568,6 +568,20 @@ class Api(unittest.TestCase):
         self.assertEqual(claves.listar(), [])
 
 
+class Resultados(unittest.TestCase):
+    def test_lo_ultimo_va_primero_aunque_el_nombre_ordene_antes(self):
+        d = Path(TMP, "estado", "resultados")
+        viejo, nuevo = d / "claude-pro-web-abc.json", d / "20261111214500000000-aaaaaa.json"
+        viejo.write_text('{"id": "viejo"}')
+        nuevo.write_text('{"id": "nuevo"}')
+        os.utime(viejo, (1, 1))
+        try:
+            self.assertEqual(panel._resultados(1)[0]["id"], "nuevo")
+        finally:
+            viejo.unlink()
+            nuevo.unlink()
+
+
 class SoloIt(unittest.TestCase):
     """Un host de «Solo IT» (p. ej. n8n): NPM pregunta al panel antes de dejar pasar."""
     def setUp(self):

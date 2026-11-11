@@ -348,7 +348,8 @@ def _resultados(limite: int = 10) -> list:
     d = _dir("ESTADO_DIR", "/estado") / "resultados"
     salida = []
     try:
-        for p in sorted(d.glob("*.json"), reverse=True)[:limite]:
+        # por fecha: los nombres no ordenan bien (los de la API empiezan por «claude-…»)
+        for p in sorted(d.glob("*.json"), key=lambda p: p.stat().st_mtime, reverse=True)[:limite]:
             try:
                 salida.append(json.loads(p.read_text(encoding="utf-8")))
             except ValueError:
