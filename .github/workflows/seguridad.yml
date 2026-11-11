@@ -1,0 +1,52 @@
+# Seguridad (D20): secretos en todo el historial, dependencias y la imagen.
+# Falla si hay un secreto o un CVE crítico con arreglo. Corre en cada PR, en main
+# y los lunes (salen CVE nuevos aunque no cambie el código).
+name: Seguridad
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    - cron: "17 6 * * 1"
+
+permissions:
+  contents: read
+
+env:
+  GITLEAKS: zricethezav/gitleaks:v8.21.2
+  TRIVY: aquasec/trivy:0.57.1
+
+jobs:
+  secretos:
+    name: sin secretos (historial entero)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: gitleaks
+        run: |
+          docker run --rm -u "$(id -u):$(id -g)" -v "$PWD:/repo" "$GITLEAKS" \
+            detect --source /repo --redact --no-banner -v
+
+  dependencias:
+    name: dependencias sin CVE críticos
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Trivy (ficheros)
+        run: |
+          docker run --rm -v "$PWD:/src" "$TRIVY" fs \
+            --scanners vuln --severity CRITICAL --ignore-unfixed --exit-code 1 /src
+
+  imagen:
+    name: imagen sin CVE críticos
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build -q -t prueba-seguridad panel
+      - name: Trivy (imagen)
+        run: |
+          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock "$TRIVY" image \
+            --scanners vuln --severity CRITICAL --ignore-unfixed --exit-code 1 prueba-seguridad
