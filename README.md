@@ -170,6 +170,10 @@ mira solo si el DNS, el proxy, el certificado y la respuesta siguen bien, y Ajus
 enseña. **Quitar su dominio** lo devuelve a donde iba antes (el DNS no se toca). La app
 tiene que aceptar esa dirección (ver *Lo que el servidor espera de una app*).
 
+## «Seguir conectado» en el login
+
+En Ajustes, «Seguir conectado» pone cuántos días (1 a 90, por defecto 30) dura la sesión de Keycloak de quien marca esa casilla al entrar. Lo aplica el agente en el realm (`rememberMe`, `ssoSessionIdleTimeoutRememberMe` y `ssoSessionMaxLifespanRememberMe`). Vale para todas las apps, en DEV y en PRO, porque comparten realm. Sin esto, Keycloak usa la sesión normal y pide la contraseña cada día. La cookie de Ajustes dura 12 horas sin uso, pero al caducar vuelve a entrar sola mientras la sesión de Keycloak siga viva.
+
 ## Solo IT: otros servicios detrás del login
 
 Para un host de Nginx Proxy Manager del dominio del servidor que no es una app del

@@ -178,6 +178,15 @@ class Ajustes(unittest.TestCase):
         datos = json.loads(p.read_text())
         self.assertEqual((datos["accion"], datos["datos"], datos["quien"]), ("grupo", {"id": "linai", "grupo": "Lin-AI"}, "henry"))
 
+    def test_sesiones_deja_peticion_y_valida_dias(self):
+        c = cliente("henry", ["/IT"])
+        c.post("/ajustes/sesiones/", data={"dias": "120", "csrf": self.csrf(c)})
+        self.assertEqual(list(Path(TMP, "peticiones").glob("*.json")), [])
+        c.post("/ajustes/sesiones/", data={"dias": "30", "csrf": self.csrf(c)})
+        [p] = Path(TMP, "peticiones").glob("*.json")
+        datos = json.loads(p.read_text())
+        self.assertEqual((datos["accion"], datos["datos"]), ("sesiones", {"dias": "30"}))
+
     def test_pasar_a_pro_workflow(self):
         c = cliente("henry", ["/IT"])
         def ver(ent, *_a):

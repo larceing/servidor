@@ -1451,6 +1451,27 @@ def _acc_solo_it(d: dict) -> None:
         log(f"{dom}: quitado de Solo IT (vuelve a estar como antes)")
 
 
+def _acc_sesiones(d: dict) -> None:
+    """Cuánto dura «Seguir conectado» en el login (Remember Me del realm). Sin esto
+    Keycloak usa la sesión normal y pide la contraseña cada día."""
+    try:
+        dias = int(str(d.get("dias", "")).strip())
+    except ValueError:
+        dias = 0
+    if not 1 <= dias <= 90:
+        raise Error("los días de «Seguir conectado» van de 1 a 90")
+    segundos = str(dias * 86400)
+    try:
+        kc_entrar()
+        realm = _realm(cfg())
+        kc("update", f"realms/{realm}", "-s", "rememberMe=true",
+           "-s", f"ssoSessionIdleTimeoutRememberMe={segundos}",
+           "-s", f"ssoSessionMaxLifespanRememberMe={segundos}")
+    except Error as e:
+        raise Error(f"Keycloak: {e}") from None
+    log(f"Keycloak: «Seguir conectado» dura {dias} días en el realm {realm}")
+
+
 # ── Cloudflare (DNS de los dominios propios, si se guarda su token) ─────────
 
 def _cf(metodo: str, ruta: str, datos=None, token: str = ""):
@@ -2070,7 +2091,7 @@ ACCIONES = {"registrar": _acc_registrar, "quitar": _acc_quitar, "grupo": _acc_gr
             "desplegar": _acc_desplegar, "dominio": _acc_dominio, "npm": _acc_npm,
             "principal": _acc_principal, "principal_ajustes": _acc_principal_ajustes,
             "sincronizar": _acc_sincronizar, "quitar_dominio": _acc_quitar_dominio, "cloudflare": _acc_cloudflare,
-            "solo_it": _acc_solo_it}
+            "solo_it": _acc_solo_it, "sesiones": _acc_sesiones}
 
 
 def procesar_peticiones() -> int:
